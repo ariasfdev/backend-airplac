@@ -111,6 +111,15 @@ export const getPedidos = async (
         },
       },
       { $unwind: { path: "$stockInfo", preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: "Precios",
+          localField: "productos.id_precio",
+          foreignField: "_id",
+          as: "precioInfo",
+        },
+      },
+      { $unwind: { path: "$precioInfo", preserveNullAndEmptyArrays: true } },
 
       {
         $group: {
@@ -185,6 +194,8 @@ export const getPedidos = async (
                   default: "$stockInfo.valor_m2",
                 },
               },
+              nombre_precio: "$precioInfo.nombre_precio",
+              id_precio: "$productos.id_precio", // <-- Agregado aquí
             },
           },
         },
@@ -259,6 +270,7 @@ export const getPedidos = async (
           porcentaje_tarjeta: prod.porcentaje_tarjeta,
           total_redondeo: prod.total_redondeo,
           valor: prod.valor,
+          id_precio: prod.id_precio, // <-- Agregado aquí
         })),
       };
     });
