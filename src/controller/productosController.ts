@@ -163,4 +163,155 @@ export const updateStockConProduccion = async (
     }
 };
 
+// Función para crear un producto completo (modelo + stock + precio) individual
+const crearProductoCompleto = async (productoData: any) => {
+    const { _id, ...modeloData } = productoData; // Excluye el campo _id si está presente
+
+    // 1. Crear el modelo
+    const nuevoModelo = await Modelo.create(modeloData);
+
+    // 2. Crear el stock asociado
+    const stockData = {
+        producto: nuevoModelo.producto,
+        modelo: nuevoModelo.modelo,
+        stock: productoData.stock || 0,
+        reservado: 0,
+        pendiente: 0,
+        disponible: productoData.stock || 0,
+        unidad: "m2",
+        actualizaciones: [],
+        idModelo: nuevoModelo._id,
+        stockActivo: true, // Activar por defecto para productos completos
+        pedidos: []
+    };
+
+    const nuevoStock = await Stock.create(stockData);
+
+    // 3. Crear el precio base
+    const precioData = {
+        id_modelo: nuevoModelo._id,
+        nombre_precio: "Precio Base",
+        es_base: true,
+        activo: true,
+        costo: productoData.costo || 0,
+        porcentaje_ganancia: productoData.porcentaje_ganancia || 100,
+        porcentaje_tarjeta: productoData.porcentaje_tarjeta || 15,
+        total_redondeo: productoData.total_redondeo || 0,
+        fecha: new Date()
+    };
+
+    const nuevoPrecio = await Precio.create(precioData);
+
+    return {
+        modelo: nuevoModelo,
+        stock: nuevoStock,
+        precio: nuevoPrecio
+    };
+};
+
+// Endpoint para creación masiva de productos
+export const crearProductosMasivos = async (
+    req: Request,
+    res: Response
+): Promise<void> => {
+    try {
+        const { productos } = req.body;
+
+        // Validar que se envíe un array de productos
+        if (!Array.isArray(productos) || productos.length === 0) {
+            res.status(400).json({
+                message: "Se requiere un array de productos no vacío"
+            });
+            return;
+        }
+
+        const resultados = [];
+        const errores = [];
+
+        // Procesar cada producto de forma secuencial para evitar problemas de concurrencia
+        for (let i = 0; i < productos.length; i++) {
+            try {
+                const producto = productos[i];
+
+                // Validaciones básicas
+                if (!producto.producto || !producto.modelo || !producto.ancho || !producto.alto || !producto.tipo) {
+                    errores.push({
+                        indice: i,
+                        producto: producto.producto || 'Sin nombre',
+                        error: "Faltan campos obligatorios del modelo (producto, modelo, ancho, alto, tipo)"
+                    });
+                    continue;
+                }
+
+                if (producto.costo === undefined || producto.costo < 0) {
+                    errores.push({
+                        indice: i,
+                        producto: producto.producto,
+                        error: "El costo es obligatorio y debe ser mayor o igual a 0"
+                    });
+                    continue;
+                }
+
+                const resultado = await crearProductoCompleto(producto);
+                resultados.push({
+                    indice: i,
+                    producto: producto.producto,
+                    modelo: resultado.modelo,
+                    stock: resultado.stock,
+                    precio: resultado.precio
+                });
+
+                console.log(`✅ Producto ${i + 1}/${productos.length} creado: ${producto.producto} - ${producto.modelo}`);
+
+            } catch (error) {
+                console.error(`❌ Error creando producto ${i + 1}:`, error);
+                errores.push({
+                    indice: i,
+                    producto: productos[i].producto || 'Sin nombre',
+                    error: error instanceof Error ? error.message : 'Error desconocido'
+                });
+            }
+        }
+
+        // Respuesta con resultados y errores
+        res.status(201).json({
+            message: `Procesados ${productos.length} productos`,
+            exitosos: resultados.length,
+            total_errores: errores.length,
+            resultados,
+            errores
+        });
+
+    } catch (error) {
+        console.error("Error en creación masiva de productos:", error);
+        res.status(500).json({
+            message: "Error interno del servidor",
+            error: error instanceof Error ? error.message : 'Error desconocido'
+        });
+    }
+};
+
+// Endpoint para crear un solo producto completo
+export const crearProductoCompletoIndividual = async (
+    req: Request,
+    res: Response
+): Promise<void> => {
+    try {
+        const resultado = await crearProductoCompleto(req.body);
+
+        res.status(201).json({
+            message: "Producto completo creado correctamente",
+            modelo: resultado.modelo,
+            stock: resultado.stock,
+            precio: resultado.precio
+        });
+    } catch (error) {
+        console.error("Error al crear producto completo:", error);
+        res.status(500).json({
+            message: "Error al crear producto completo",
+            error: error instanceof Error ? error.message : 'Error desconocido'
+        });
+    }
+};
+
 

@@ -1,0 +1,69 @@
+{
+  "productos": [
+    {
+      "producto": "PLACAS",
+      "modelo": "BARILOCHE",
+      "ancho": "1.20",
+      "alto": "2.40",
+      "tipo": "Estándar",
+      "placas_por_metro": 7,
+      "stock": 0,
+      "costo": 50000,
+      "porcentaje_ganancia": 100,
+      "porcentaje_tarjeta": 15,
+      "total_redondeo": 1
+    },
+    {
+      "producto": "PLACAS",
+      "modelo": "BURBUJA",
+      "ancho": "1.20",
+      "alto": "2.40",
+      "tipo": "Estándar",
+      "placas_por_metro": 6.3,
+      "stock": 0,
+      "costo": 125000,
+      "porcentaje_ganancia": 100,
+      "porcentaje_tarjeta": 15,
+      "total_redondeo": 1
+    },
+    {
+      "producto": "PLACAS",
+      "modelo": "DISEÑO",
+      "ancho": "1.20",
+      "alto": "2.40",
+      "tipo": "Estándar",
+      "placas_por_metro": 4,
+      "stock": 0,
+      "costo": 425000,
+      "porcentaje_ganancia": 100,
+      "porcentaje_tarjeta": 15,
+      "total_redondeo": 1
+    },
+    {
+      "producto": "PLACAS",
+      "modelo": "FLOR",
+      "ancho": "1.20",
+      "alto": "2.40",
+      "tipo": "Estándar",
+      "placas_por_metro": 6.3,
+      "stock": 0,
+      "costo": 750000,
+      "porcentaje_ganancia": 100,
+      "porcentaje_tarjeta": 15,
+      "total_redondeo": 1
+    },
+    {
+      "producto": "PLACAS",
+      "modelo": "LADRILLO",
+      "ancho": "1.20",
+      "alto": "2.40",
+      "tipo": "Estándar",
+      "placas_por_metro": 3,
+      "stock": 0,
+      "costo": 0,
+      "porcentaje_ganancia": 100,
+      "porcentaje_tarjeta": 15,
+      "total_redondeo": 1
+    }
+  ]
+}
