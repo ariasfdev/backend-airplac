@@ -104,22 +104,30 @@ export const editarModelo = async (
     res.status(500).json({ message: "Error al editar el modelo", error });
   }
 };
-export const nuevoModelo = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+
+export const nuevoModelo = async (req: Request, res: Response): Promise<void> => {
+  const { _id, ...data } = req.body;
+  
   try {
-    const { _id, ...data } = req.body; // Excluye el campo _id si está presente
-    const nuevoModelo = await Modelo.create(data); // Crea el modelo sin _id
-    res.status(201).json({
-      message: "Modelo creado correctamente",
-      modelo: nuevoModelo,
-    });
-  } catch (error) {
+    console.log("Intentando crear modelo:", data.modelo);
+    
+    const doc = await Modelo.create(data);
+    console.log("Modelo creado exitosamente:", doc.modelo);
+    res.status(201).json({ message: "Modelo creado correctamente", modelo: doc });
+  } catch (error: any) {
+    console.log("Error capturado:", error.code, error.message);
+    
+    if (error?.code === 11000) {
+      console.log("Duplicado detectado para:", data.modelo);
+      res.status(409).json({ 
+        message: "No se puede crear el modelo porque ya existe uno con el mismo nombre",
+        error: "MODELO_DUPLICADO",
+        duplicado: data.modelo
+      });
+      return;
+    }
     console.error("Error al crear el modelo:", error);
-    res.status(500).json({
-      message: "Error al crear el modelo",
-      error,
-    });
+    res.status(500).json({ message: "Error al crear el modelo", error });
   }
 };
+

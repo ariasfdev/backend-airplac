@@ -71,42 +71,50 @@ export const crearModeloConStock = async (
     req: Request,
     res: Response
 ): Promise<void> => {
-    try {
-        const { _id, ...modeloData } = req.body; // Excluye el campo _id si está presente
+        try {
+            const { _id, ...modeloData } = req.body; // Excluye el campo _id si está presente
 
-        // Crear el modelo
+            // Crear el modelo
+            const nuevoModelo = await Modelo.create(modeloData);
 
-        const nuevoModelo = await Modelo.create(modeloData);
+            // Crear el stock asociado con datos del modelo
+            const stockData = {
+                producto: nuevoModelo.producto,
+                modelo: nuevoModelo.modelo,
+                stock: 0, // Stock inicial en 0
+                reservado: 0,
+                pendiente: 0,
+                disponible: 0,
+                unidad: "m2", // Unidad por defecto
+                actualizaciones: [], // Array vacío de actualizaciones
+                idModelo: nuevoModelo._id, // Referencia al modelo creado
+                stockActivo: false, // Stock inactivo por defecto
+                pedidos: [] // Array vacío de pedidos
+            };
 
-        // Crear el stock asociado con datos del modelo
-        const stockData = {
-            producto: nuevoModelo.producto,
-            modelo: nuevoModelo.modelo,
-            stock: 0, // Stock inicial en 0
-            reservado: 0,
-            pendiente: 0,
-            disponible: 0,
-            unidad: "m2", // Unidad por defecto
-            actualizaciones: [], // Array vacío de actualizaciones
-            idModelo: nuevoModelo._id, // Referencia al modelo creado
-            stockActivo: false, // Stock inactivo por defecto
-            pedidos: [] // Array vacío de pedidos
-        };
-
-        const nuevoStock = await Stock.create(stockData);
-        console.log("Modelo y stock creados correctamente", nuevoModelo, nuevoStock,);
-        res.status(201).json({
-            message: "Modelo y stock creados correctamente",
-            modelo: nuevoModelo,
-            stock: nuevoStock
-        });
-    } catch (error) {
-        console.error("Error al crear modelo y stock:", error);
-        res.status(500).json({
-            message: "Error al crear modelo y stock",
-            error
-        });
-    }
+            const nuevoStock = await Stock.create(stockData);
+            console.log("Modelo y stock creados correctamente", nuevoModelo, nuevoStock);
+            res.status(201).json({
+                message: "Modelo y stock creados correctamente",
+                modelo: nuevoModelo,
+                stock: nuevoStock
+            });
+        } catch (error: any) {
+            console.error("Error al crear modelo y stock:", error);
+            // Manejo de error de duplicado
+            if (error?.code === 11000) {
+                res.status(409).json({
+                    message: `No se puede crear el modelo "${req.body.modelo}" porque ya existe uno con el mismo nombre. Por favor, elige un nombre diferente.`,
+                    error: "MODELO_DUPLICADO",
+                    duplicado: req.body.modelo
+                });
+                return;
+            }
+            res.status(500).json({
+                message: "Error al crear modelo y stock",
+                error
+            });
+        }
 };
 
 export const updateStockConProduccion = async (
