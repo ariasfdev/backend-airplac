@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import Modelo from "../models/modelosModel";
 import Stock from "../models/stockModel";
+import Pedido from "../models/pedidosModel"; // Agrega la importación del modelo Pedido
 
 // Lista de modelos iniciales
 const modelosIniciales = [
@@ -56,8 +57,8 @@ export const obtenerModelos = async (
   res: Response
 ): Promise<void> => {
   try {
-    // Obtener todos los modelos
-    const modelos = await Modelo.find().lean();
+    // Obtener solo los modelos que no tengan fecha_baja
+    const modelos = await Modelo.find({ fecha_baja: { $exists: false } }).lean();
 
     // Obtener todos los stocks para hacer el mapeo
     const stocks = await Stock.find({}, { idModelo: 1, _id: 1 }).lean();
@@ -128,6 +129,44 @@ export const nuevoModelo = async (req: Request, res: Response): Promise<void> =>
     }
     console.error("Error al crear el modelo:", error);
     res.status(500).json({ message: "Error al crear el modelo", error });
+  }
+};
+
+export const eliminarModelo = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    // Verificar si existen pedidos pendientes para este modelo
+    const pedidosPendientes = await Pedido.find({
+      "productos.idModelo": id,
+      "productos.estado_stock": "pendiente"
+    }).lean();
+
+    if (pedidosPendientes.length > 0) {
+      res.status(409).json({
+        message: "No se puede eliminar el modelo porque tiene pedidos pendientes asociados",
+        pedidosPendientes: pedidosPendientes.map(p => p._id)
+      });
+      return;
+    }
+
+    // Actualizar el campo fecha_baja con la fecha actual
+    const modeloEliminado = await Modelo.findByIdAndUpdate(
+      id,
+      { fecha_baja: new Date() },
+      { new: true }
+    );
+    if (!modeloEliminado) {
+      res.status(404).json({ message: "Modelo no encontrado" });
+      return;
+    }
+    res.status(200).json({ message: "Modelo dado de baja correctamente" });
+  } catch (error) {
+    console.error("Error al dar de baja el modelo:", error);
+    res.status(500).json({ message: "Error al dar de baja el modelo", error });
   }
 };
 
