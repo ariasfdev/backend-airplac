@@ -33,6 +33,7 @@ export interface IPedido extends Document {
   total: number;
   total_pendiente: number;
   valor_instalacion: number;
+  tipo: string; // "pedido" o "presupuesto"
 }
 
 const PedidoSchema: Schema = new Schema({
@@ -107,6 +108,7 @@ const PedidoSchema: Schema = new Schema({
       fecha: { type: Date, default: Date.now },
     },
   ],
+  tipo: { type: String, enum: ["pedido", "presupuesto"], default: "pedido" }, // Nuevo campo
 });
 
 // Forzar el uso de la colección "Pedidos"
