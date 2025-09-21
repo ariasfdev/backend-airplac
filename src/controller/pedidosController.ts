@@ -137,7 +137,7 @@ export const getPedidos = async (req: Request, res: Response): Promise<void> => 
           valor_instalacion: { $first: "$valor_instalacion" },
           remitos: { $first: "$remitos" },
           comentario_cliente: { $first: "$comentario_cliente" },
-
+          tipo: { $first: "$tipo" }, // <-- Asegura que el campo tipo se incluya aquí
           productos: {
             $push: {
               idStock: "$productos.idStock",
@@ -254,6 +254,7 @@ export const getPedidos = async (req: Request, res: Response): Promise<void> => 
           masDeUnProducto: pedido.productos.length > 1,
 
           productos: productosConPrecios,
+          tipo: pedido.tipo || "pedido", // <-- Devuelve el tipo real
         }
       }),
     )
@@ -285,6 +286,7 @@ export const createPedido = async (req: Request, res: Response): Promise<void> =
       total,
       total_pendiente,
       valor_instalacion,
+      tipo, // <-- extraer tipo del body
     } = req.body
 
     // 1️⃣ Crear el pedido con estado_stock "pendiente" por defecto
@@ -313,111 +315,115 @@ export const createPedido = async (req: Request, res: Response): Promise<void> =
       total,
       total_pendiente,
       valor_instalacion,
+      tipo: tipo || "pedido", // <-- asigna correctamente el tipo
     })
 
     const pedidoGuardado = await nuevoPedido.save()
 
-    // 2️⃣ Procesar la verificación de stock para cada producto
-    for (const prod of productos) {
-      const stock = await Stock.findById(prod.idStock)
-      const modelo = await Modelos.findById(prod.idModelo)
+    // Solo afectar stock si NO es presupuesto
+    if ((tipo || "pedido") !== "presupuesto") {
+      // 2️⃣ Procesar la verificación de stock para cada producto
+      for (const prod of productos) {
+        const stock = await Stock.findById(prod.idStock)
+        const modelo = await Modelos.findById(prod.idModelo)
 
-      if (stock && modelo && modelo.placas_por_metro) {
-        const cantidadNecesaria = prod.cantidad * modelo.placas_por_metro
-        const stockTotal = stock.stock || 0
+        if (stock && modelo && modelo.placas_por_metro) {
+          const cantidadNecesaria = prod.cantidad * modelo.placas_por_metro
+          const stockTotal = stock.stock || 0
 
-        // Calcular stock reservado por pedidos pendientes
-        const stockReservado = stock.pedidos
-          ? stock.pedidos
-            .filter((pedido: any) => pedido.estado === "reservado" || pedido.estado === "pendiente")
-            .reduce((total: number, pedido: any) => total + (pedido.cantidad || 0), 0)
-          : 0
+          // Calcular stock reservado por pedidos pendientes
+          const stockReservado = stock.pedidos
+            ? stock.pedidos
+              .filter((pedido: any) => pedido.estado === "reservado" || pedido.estado === "pendiente")
+              .reduce((total: number, pedido: any) => total + (pedido.cantidad || 0), 0)
+            : 0
 
-        // Stock realmente disponible = stock total - stock reservado
-        const stockDisponible = stockTotal - stockReservado
+          // Stock realmente disponible = stock total - stock reservado
+          const stockDisponible = stockTotal - stockReservado
 
-        if (stockDisponible >= cantidadNecesaria) {
-          // ✅ Stock disponible - Actualizar estado a "reservado"
-          await Pedido.updateOne(
-            {
-              _id: pedidoGuardado._id,
-              "productos.idStock": prod.idStock,
-            },
-            {
-              $set: { "productos.$.estado_stock": "Disponible" },
-            },
-          )
-
-          // Actualizar el stock: incrementar reservado y agregar al array pedidos
-          await Stock.findByIdAndUpdate(prod.idStock, {
-            $inc: { reservado: cantidadNecesaria },
-            $push: {
-              pedidos: {
-                idPedido: pedidoGuardado._id,
-                cantidad: cantidadNecesaria,
-                estado: "reservado",
+          if (stockDisponible >= cantidadNecesaria) {
+            // ✅ Stock disponible - Actualizar estado a "reservado"
+            await Pedido.updateOne(
+              {
+                _id: pedidoGuardado._id,
+                "productos.idStock": prod.idStock,
               },
-            },
-          })
+              {
+                $set: { "productos.$.estado_stock": "Disponible" },
+              },
+            )
 
-          // ✅ Registrar movimiento de reserva
-          await registrarMovimiento({
-            idStock: (prod.idStock as any).toString(),
-            idModelo: (prod.idModelo as any).toString(),
-            idPedido: (pedidoGuardado._id as any).toString(),
-            tipo_movimiento: "reserva",
-            cantidad: cantidadNecesaria,
-            responsable: "Sistema",
-            motivo: `Reserva por pedido ${pedidoGuardado.remito}`,
-            remito: pedidoGuardado.remito,
-            cliente_nombre: pedidoGuardado.cliente?.nombre,
-            vendedor_id: pedidoGuardado.vendedor_id?.toString(),
-            estado_pedido: pedidoGuardado.estado,
-            req: req
-          });
+            // Actualizar el stock: incrementar reservado y agregar al array pedidos
+            await Stock.findByIdAndUpdate(prod.idStock, {
+              $inc: { reservado: cantidadNecesaria },
+              $push: {
+                pedidos: {
+                  idPedido: pedidoGuardado._id,
+                  cantidad: cantidadNecesaria,
+                  estado: "reservado",
+                },
+              },
+            })
+
+            // ✅ Registrar movimiento de reserva
+            await registrarMovimiento({
+              idStock: (prod.idStock as any).toString(),
+              idModelo: (prod.idModelo as any).toString(),
+              idPedido: (pedidoGuardado._id as any).toString(),
+              tipo_movimiento: "reserva",
+              cantidad: cantidadNecesaria,
+              responsable: "Sistema",
+              motivo: `Reserva por pedido ${pedidoGuardado.remito}`,
+              remito: pedidoGuardado.remito,
+              cliente_nombre: pedidoGuardado.cliente?.nombre,
+              vendedor_id: pedidoGuardado.vendedor_id?.toString(),
+              estado_pedido: pedidoGuardado.estado,
+              req: req
+            });
+
+            console.log(
+              `🟢 Stock reservado para idStock ${prod.idStock}: ${stockDisponible} >= ${cantidadNecesaria} (Total: ${stockTotal}, Reservado: ${stockReservado})`,
+            )
+          } else {
+            // 🔴 Stock insuficiente - Mantener estado "pendiente"
+
+            // Actualizar el stock: incrementar pendiente y agregar al array pedidos
+            await Stock.findByIdAndUpdate(prod.idStock, {
+              $inc: { pendiente: cantidadNecesaria },
+              $push: {
+                pedidos: {
+                  idPedido: pedidoGuardado._id,
+                  cantidad: cantidadNecesaria,
+                  estado: "pendiente",
+                },
+              },
+            })
+
+            // ✅ Registrar movimiento de pendiente
+            await registrarMovimiento({
+              idStock: (prod.idStock as any).toString(),
+              idModelo: (prod.idModelo as any).toString(),
+              idPedido: (pedidoGuardado._id as any).toString(),
+              tipo_movimiento: "reserva",
+              cantidad: cantidadNecesaria,
+              responsable: "Sistema",
+              motivo: `Stock pendiente por pedido ${pedidoGuardado.remito} - Stock insuficiente`,
+              remito: pedidoGuardado.remito,
+              cliente_nombre: pedidoGuardado.cliente?.nombre,
+              vendedor_id: pedidoGuardado.vendedor_id?.toString(),
+              estado_pedido: pedidoGuardado.estado,
+              req: req
+            });
+
+            console.log(
+              `🔴 Stock pendiente para idStock ${prod.idStock}: ${stockDisponible} < ${cantidadNecesaria} (Total: ${stockTotal}, Reservado: ${stockReservado})`,
+            )
+          }
 
           console.log(
-            `🟢 Stock reservado para idStock ${prod.idStock}: ${stockDisponible} >= ${cantidadNecesaria} (Total: ${stockTotal}, Reservado: ${stockReservado})`,
-          )
-        } else {
-          // 🔴 Stock insuficiente - Mantener estado "pendiente"
-
-          // Actualizar el stock: incrementar pendiente y agregar al array pedidos
-          await Stock.findByIdAndUpdate(prod.idStock, {
-            $inc: { pendiente: cantidadNecesaria },
-            $push: {
-              pedidos: {
-                idPedido: pedidoGuardado._id,
-                cantidad: cantidadNecesaria,
-                estado: "pendiente",
-              },
-            },
-          })
-
-          // ✅ Registrar movimiento de pendiente
-          await registrarMovimiento({
-            idStock: (prod.idStock as any).toString(),
-            idModelo: (prod.idModelo as any).toString(),
-            idPedido: (pedidoGuardado._id as any).toString(),
-            tipo_movimiento: "reserva",
-            cantidad: cantidadNecesaria,
-            responsable: "Sistema",
-            motivo: `Stock pendiente por pedido ${pedidoGuardado.remito} - Stock insuficiente`,
-            remito: pedidoGuardado.remito,
-            cliente_nombre: pedidoGuardado.cliente?.nombre,
-            vendedor_id: pedidoGuardado.vendedor_id?.toString(),
-            estado_pedido: pedidoGuardado.estado,
-            req: req
-          });
-
-          console.log(
-            `🔴 Stock pendiente para idStock ${prod.idStock}: ${stockDisponible} < ${cantidadNecesaria} (Total: ${stockTotal}, Reservado: ${stockReservado})`,
+            `📦 Reserva agregada al stock ${prod.idStock}: ${cantidadNecesaria} unidades para pedido ${pedidoGuardado.remito}`,
           )
         }
-
-        console.log(
-          `📦 Reserva agregada al stock ${prod.idStock}: ${cantidadNecesaria} unidades para pedido ${pedidoGuardado.remito}`,
-        )
       }
     }
 
@@ -588,6 +594,102 @@ export const updatePedido = async (req: Request, res: Response): Promise<void> =
         estado_stock: p.estado_stock,
       })),
     })
+
+    // Detectar si el tipo cambia de "presupuesto" a "pedido"
+    const tipoAnterior = pedidoExistente.tipo || "pedido"
+    const tipoNuevo = updates.tipo || tipoAnterior
+
+    // Si el tipo cambia de "presupuesto" a "pedido", afectar el stock como si fuera un pedido nuevo
+    if (tipoAnterior === "presupuesto" && tipoNuevo === "pedido" && updates.productos && Array.isArray(updates.productos)) {
+      for (const prod of updates.productos) {
+        const stock = await Stock.findById(prod.idStock)
+        const modelo = await Modelos.findById(prod.idModelo)
+
+        if (stock && modelo && modelo.placas_por_metro) {
+          const cantidadNecesaria = prod.cantidad * modelo.placas_por_metro
+          const stockTotal = stock.stock || 0
+
+          // Calcular stock reservado por pedidos pendientes
+          const stockReservado = stock.pedidos
+            ? stock.pedidos
+              .filter((pedido: any) => pedido.estado === "reservado" || pedido.estado === "pendiente")
+              .reduce((total: number, pedido: any) => total + (pedido.cantidad || 0), 0)
+            : 0
+
+          // Stock realmente disponible = stock total - stock reservado
+          const stockDisponible = stockTotal - stockReservado
+
+          if (stockDisponible >= cantidadNecesaria) {
+            // Stock disponible - Actualizar estado a "reservado"
+            await Pedido.updateOne(
+              {
+                _id: pedidoExistente._id,
+                "productos.idStock": prod.idStock,
+              },
+              {
+                $set: { "productos.$.estado_stock": "Disponible" },
+              },
+            )
+
+            // Actualizar el stock: incrementar reservado y agregar al array pedidos
+            await Stock.findByIdAndUpdate(prod.idStock, {
+              $inc: { reservado: cantidadNecesaria },
+              $push: {
+                pedidos: {
+                  idPedido: pedidoExistente._id,
+                  cantidad: cantidadNecesaria,
+                  estado: "reservado",
+                },
+              },
+            })
+
+            // Registrar movimiento de reserva
+            await registrarMovimiento({
+              idStock: (prod.idStock as any).toString(),
+              idModelo: (prod.idModelo as any).toString(),
+              idPedido: (pedidoExistente._id as any).toString(),
+              tipo_movimiento: "reserva",
+              cantidad: cantidadNecesaria,
+              responsable: "Sistema",
+              motivo: `Reserva por cambio de presupuesto a pedido ${pedidoExistente.remito}`,
+              remito: pedidoExistente.remito,
+              cliente_nombre: pedidoExistente.cliente?.nombre,
+              vendedor_id: pedidoExistente.vendedor_id?.toString(),
+              estado_pedido: "pedido",
+              req: req
+            });
+          } else {
+            // Stock insuficiente - Mantener estado "pendiente"
+            await Stock.findByIdAndUpdate(prod.idStock, {
+              $inc: { pendiente: cantidadNecesaria },
+              $push: {
+                pedidos: {
+                  idPedido: pedidoExistente._id,
+                  cantidad: cantidadNecesaria,
+                  estado: "pendiente",
+                },
+              },
+            })
+
+            // Registrar movimiento de pendiente
+            await registrarMovimiento({
+              idStock: (prod.idStock as any).toString(),
+              idModelo: (prod.idModelo as any).toString(),
+              idPedido: (pedidoExistente._id as any).toString(),
+              tipo_movimiento: "reserva",
+              cantidad: cantidadNecesaria,
+              responsable: "Sistema",
+              motivo: `Stock pendiente por cambio de presupuesto a pedido ${pedidoExistente.remito} - Stock insuficiente`,
+              remito: pedidoExistente.remito,
+              cliente_nombre: pedidoExistente.cliente?.nombre,
+              vendedor_id: pedidoExistente.vendedor_id?.toString(),
+              estado_pedido: "pedido",
+              req: req
+            });
+          }
+        }
+      }
+    }
 
     // ✅ Procesar cambios en productos si existen
     if (updates.productos && Array.isArray(updates.productos)) {
