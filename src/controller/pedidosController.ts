@@ -595,12 +595,16 @@ export const updatePedido = async (req: Request, res: Response): Promise<void> =
       })),
     })
 
-    // Detectar si el tipo cambia de "presupuesto" a "pedido"
     const tipoAnterior = pedidoExistente.tipo || "pedido"
     const tipoNuevo = updates.tipo || tipoAnterior
 
-    // Si el tipo cambia de "presupuesto" a "pedido", afectar el stock como si fuera un pedido nuevo
-    if (tipoAnterior === "presupuesto" && tipoNuevo === "pedido" && updates.productos && Array.isArray(updates.productos)) {
+    // Solo afecta el stock si el tipo cambia de "presupuesto" a "pedido"
+    if (
+      tipoAnterior === "presupuesto" &&
+      tipoNuevo === "pedido" &&
+      updates.productos &&
+      Array.isArray(updates.productos)
+    ) {
       for (const prod of updates.productos) {
         const stock = await Stock.findById(prod.idStock)
         const modelo = await Modelos.findById(prod.idModelo)
@@ -692,7 +696,12 @@ export const updatePedido = async (req: Request, res: Response): Promise<void> =
     }
 
     // ✅ Procesar cambios en productos si existen
-    if (updates.productos && Array.isArray(updates.productos)) {
+    if (
+      updates.productos &&
+      Array.isArray(updates.productos)
+      // Solo procesar stock si NO es presupuesto
+      && !(tipoAnterior === "presupuesto" && tipoNuevo === "presupuesto")
+    ) {
       const productosAnteriores = pedidoExistente.productos
       const productosNuevos = updates.productos
 
