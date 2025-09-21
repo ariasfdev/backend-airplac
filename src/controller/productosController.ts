@@ -4,6 +4,7 @@ import Stock from "../models/stockModel";
 import Produccion from "../models/produccionModel";
 import Pedido from "../models/pedidosModel";
 import Precio from "../models/precios.model";
+import { registrarMovimiento } from "../utils/movimientosStock";
 // Función para evaluar pedidos pendientes y cambiarlos a reservado si hay stock suficiente
 const evaluarPedidosPendientes = async (idStock: string): Promise<void> => {
     try {
@@ -71,50 +72,50 @@ export const crearModeloConStock = async (
     req: Request,
     res: Response
 ): Promise<void> => {
-        try {
-            const { _id, ...modeloData } = req.body; // Excluye el campo _id si está presente
+    try {
+        const { _id, ...modeloData } = req.body; // Excluye el campo _id si está presente
 
-            // Crear el modelo
-            const nuevoModelo = await Modelo.create(modeloData);
+        // Crear el modelo
+        const nuevoModelo = await Modelo.create(modeloData);
 
-            // Crear el stock asociado con datos del modelo
-            const stockData = {
-                producto: nuevoModelo.producto,
-                modelo: nuevoModelo.modelo,
-                stock: 0, // Stock inicial en 0
-                reservado: 0,
-                pendiente: 0,
-                disponible: 0,
-                unidad: "m2", // Unidad por defecto
-                actualizaciones: [], // Array vacío de actualizaciones
-                idModelo: nuevoModelo._id, // Referencia al modelo creado
-                stockActivo: false, // Stock inactivo por defecto
-                pedidos: [] // Array vacío de pedidos
-            };
+        // Crear el stock asociado con datos del modelo
+        const stockData = {
+            producto: nuevoModelo.producto,
+            modelo: nuevoModelo.modelo,
+            stock: 0, // Stock inicial en 0
+            reservado: 0,
+            pendiente: 0,
+            disponible: 0,
+            unidad: "m2", // Unidad por defecto
+            actualizaciones: [], // Array vacío de actualizaciones
+            idModelo: nuevoModelo._id, // Referencia al modelo creado
+            stockActivo: false, // Stock inactivo por defecto
+            pedidos: [] // Array vacío de pedidos
+        };
 
-            const nuevoStock = await Stock.create(stockData);
-            console.log("Modelo y stock creados correctamente", nuevoModelo, nuevoStock);
-            res.status(201).json({
-                message: "Modelo y stock creados correctamente",
-                modelo: nuevoModelo,
-                stock: nuevoStock
+        const nuevoStock = await Stock.create(stockData);
+        console.log("Modelo y stock creados correctamente", nuevoModelo, nuevoStock);
+        res.status(201).json({
+            message: "Modelo y stock creados correctamente",
+            modelo: nuevoModelo,
+            stock: nuevoStock
+        });
+    } catch (error: any) {
+        console.error("Error al crear modelo y stock:", error);
+        // Manejo de error de duplicado
+        if (error?.code === 11000) {
+            res.status(409).json({
+                message: `No se puede crear el modelo "${req.body.modelo}" porque ya existe uno con el mismo nombre. Por favor, elige un nombre diferente.`,
+                error: "MODELO_DUPLICADO",
+                duplicado: req.body.modelo
             });
-        } catch (error: any) {
-            console.error("Error al crear modelo y stock:", error);
-            // Manejo de error de duplicado
-            if (error?.code === 11000) {
-                res.status(409).json({
-                    message: `No se puede crear el modelo "${req.body.modelo}" porque ya existe uno con el mismo nombre. Por favor, elige un nombre diferente.`,
-                    error: "MODELO_DUPLICADO",
-                    duplicado: req.body.modelo
-                });
-                return;
-            }
-            res.status(500).json({
-                message: "Error al crear modelo y stock",
-                error
-            });
+            return;
         }
+        res.status(500).json({
+            message: "Error al crear modelo y stock",
+            error
+        });
+    }
 };
 
 export const updateStockConProduccion = async (
@@ -152,6 +153,17 @@ export const updateStockConProduccion = async (
                 responsable: "Agustin Fernandez" // Siempre marcar como Agustin Fernandez
             });
 
+            // ✅ Registrar movimiento de producción
+            await registrarMovimiento({
+                idStock: req.params.id,
+                idModelo: updatedStock.idModelo?.toString() || "",
+                tipo_movimiento: "produccion",
+                cantidad: stock,
+                responsable: "Agustin Fernandez",
+                motivo: "Actualización de stock con producción",
+                req: req
+            });
+
             // ✅ Evaluar pedidos pendientes después del incremento
             await evaluarPedidosPendientes(req.params.id);
 
@@ -172,7 +184,7 @@ export const updateStockConProduccion = async (
 };
 
 // Función para crear un producto completo (modelo + stock + precio) individual
-const crearProductoCompleto = async (productoData: any) => {
+const crearProductoCompleto = async (productoData: any, req?: Request) => {
     const { _id, ...modeloData } = productoData; // Excluye el campo _id si está presente
 
     // 1. Crear el modelo
@@ -195,7 +207,20 @@ const crearProductoCompleto = async (productoData: any) => {
 
     const nuevoStock = await Stock.create(stockData);
 
-    // 3. Crear el precio base
+    // 3. Registrar movimiento de stock inicial si hay cantidad
+    if (productoData.stock && productoData.stock > 0) {
+        await registrarMovimiento({
+            idStock: (nuevoStock._id as any).toString(),
+            idModelo: (nuevoModelo._id as any).toString(),
+            tipo_movimiento: "produccion",
+            cantidad: productoData.stock,
+            responsable: "Sistema",
+            motivo: "Stock inicial al crear producto completo",
+            req: req
+        });
+    }
+
+    // 4. Crear el precio base
     const precioData = {
         id_modelo: nuevoModelo._id,
         nombre_precio: "Precio Base",
@@ -260,7 +285,7 @@ export const crearProductosMasivos = async (
                     continue;
                 }
 
-                const resultado = await crearProductoCompleto(producto);
+                const resultado = await crearProductoCompleto(producto, req);
                 resultados.push({
                     indice: i,
                     producto: producto.producto,
@@ -305,7 +330,7 @@ export const crearProductoCompletoIndividual = async (
     res: Response
 ): Promise<void> => {
     try {
-        const resultado = await crearProductoCompleto(req.body);
+        const resultado = await crearProductoCompleto(req.body, req);
 
         res.status(201).json({
             message: "Producto completo creado correctamente",

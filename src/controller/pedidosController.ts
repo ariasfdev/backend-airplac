@@ -4,6 +4,7 @@ import Stock from "../models/stockModel" // Modelo para el stock
 import Modelos from "../models/modelosModel" // Modelo para los modelos
 import path from "path"
 import fs from "fs"
+import { registrarMovimiento } from "../utils/movimientosStock"
 
 // Función para evaluar pedidos pendientes y cambiarlos a reservado si hay stock suficiente
 const evaluarPedidosPendientes = async (idStock: string): Promise<void> => {
@@ -328,8 +329,8 @@ export const createPedido = async (req: Request, res: Response): Promise<void> =
         // Calcular stock reservado por pedidos pendientes
         const stockReservado = stock.pedidos
           ? stock.pedidos
-              .filter((pedido: any) => pedido.estado === "reservado" || pedido.estado === "pendiente")
-              .reduce((total: number, pedido: any) => total + (pedido.cantidad || 0), 0)
+            .filter((pedido: any) => pedido.estado === "reservado" || pedido.estado === "pendiente")
+            .reduce((total: number, pedido: any) => total + (pedido.cantidad || 0), 0)
           : 0
 
         // Stock realmente disponible = stock total - stock reservado
@@ -359,6 +360,22 @@ export const createPedido = async (req: Request, res: Response): Promise<void> =
             },
           })
 
+          // ✅ Registrar movimiento de reserva
+          await registrarMovimiento({
+            idStock: (prod.idStock as any).toString(),
+            idModelo: (prod.idModelo as any).toString(),
+            idPedido: (pedidoGuardado._id as any).toString(),
+            tipo_movimiento: "reserva",
+            cantidad: cantidadNecesaria,
+            responsable: "Sistema",
+            motivo: `Reserva por pedido ${pedidoGuardado.remito}`,
+            remito: pedidoGuardado.remito,
+            cliente_nombre: pedidoGuardado.cliente?.nombre,
+            vendedor_id: pedidoGuardado.vendedor_id?.toString(),
+            estado_pedido: pedidoGuardado.estado,
+            req: req
+          });
+
           console.log(
             `🟢 Stock reservado para idStock ${prod.idStock}: ${stockDisponible} >= ${cantidadNecesaria} (Total: ${stockTotal}, Reservado: ${stockReservado})`,
           )
@@ -376,6 +393,22 @@ export const createPedido = async (req: Request, res: Response): Promise<void> =
               },
             },
           })
+
+          // ✅ Registrar movimiento de pendiente
+          await registrarMovimiento({
+            idStock: (prod.idStock as any).toString(),
+            idModelo: (prod.idModelo as any).toString(),
+            idPedido: (pedidoGuardado._id as any).toString(),
+            tipo_movimiento: "reserva",
+            cantidad: cantidadNecesaria,
+            responsable: "Sistema",
+            motivo: `Stock pendiente por pedido ${pedidoGuardado.remito} - Stock insuficiente`,
+            remito: pedidoGuardado.remito,
+            cliente_nombre: pedidoGuardado.cliente?.nombre,
+            vendedor_id: pedidoGuardado.vendedor_id?.toString(),
+            estado_pedido: pedidoGuardado.estado,
+            req: req
+          });
 
           console.log(
             `🔴 Stock pendiente para idStock ${prod.idStock}: ${stockDisponible} < ${cantidadNecesaria} (Total: ${stockTotal}, Reservado: ${stockReservado})`,
@@ -476,6 +509,22 @@ export const cambiarEstadoAEntregado = async (req: Request, res: Response): Prom
         },
         { new: true },
       )
+
+      // ✅ Registrar movimiento de entrega
+      await registrarMovimiento({
+        idStock: (producto.idStock as any).toString(),
+        idModelo: (producto.idModelo as any).toString(),
+        idPedido: (pedido._id as any).toString(),
+        tipo_movimiento: "entrega",
+        cantidad: -cantidadRealEntregada,
+        responsable: "Sistema",
+        motivo: `Entrega del pedido ${pedido.remito}`,
+        remito: pedido.remito,
+        cliente_nombre: pedido.cliente?.nombre,
+        vendedor_id: pedido.vendedor_id?.toString(),
+        estado_pedido: "entregado",
+        req: req
+      });
 
       if (!stockActualizado) {
         console.warn(`⚠ No se encontró stock con ID: ${producto.idStock}`)
@@ -643,7 +692,7 @@ export const updatePedido = async (req: Request, res: Response): Promise<void> =
                   $inc: { reservado: -pedidoEnStock.cantidad },
                   $pull: {
                     pedidos: {
-                      idPedido: pedidoExistente._id,
+                      idPedido: pedidoExistente._id as any,
                     },
                   },
                 },
@@ -667,7 +716,7 @@ export const updatePedido = async (req: Request, res: Response): Promise<void> =
                   $inc: { pendiente: -pedidoEnStock.cantidad },
                   $pull: {
                     pedidos: {
-                      idPedido: pedidoExistente._id,
+                      idPedido: pedidoExistente._id as any,
                     },
                   },
                 },
@@ -752,7 +801,7 @@ export const updatePedido = async (req: Request, res: Response): Promise<void> =
                 $inc: { reservado: cantidadRealNecesaria },
                 $push: {
                   pedidos: {
-                    idPedido: pedidoExistente._id,
+                    idPedido: pedidoExistente._id as any,
                     cantidad: cantidadRealNecesaria,
                     estado: "reservado",
                   },
@@ -781,7 +830,7 @@ export const updatePedido = async (req: Request, res: Response): Promise<void> =
                 $inc: { pendiente: cantidadRealNecesaria },
                 $push: {
                   pedidos: {
-                    idPedido: pedidoExistente._id,
+                    idPedido: pedidoExistente._id as any,
                     cantidad: cantidadRealNecesaria,
                     estado: "pendiente",
                   },
@@ -886,10 +935,10 @@ export const updatePedido = async (req: Request, res: Response): Promise<void> =
             "🔍 Pedido en stock:",
             pedidoEnStock
               ? {
-                  idPedido: pedidoEnStock.idPedido,
-                  cantidad: pedidoEnStock.cantidad,
-                  estado: pedidoEnStock.estado,
-                }
+                idPedido: pedidoEnStock.idPedido,
+                cantidad: pedidoEnStock.cantidad,
+                estado: pedidoEnStock.estado,
+              }
               : "No encontrado",
           )
 
@@ -1229,6 +1278,22 @@ export const deletePedido = async (req: Request, res: Response): Promise<void> =
             { new: true },
           )
 
+          // ✅ Registrar movimiento de liberación de reserva
+          await registrarMovimiento({
+            idStock: (producto.idStock as any).toString(),
+            idModelo: (producto.idModelo as any).toString(),
+            idPedido: (pedidoAEliminar._id as any).toString(),
+            tipo_movimiento: "liberacion",
+            cantidad: -pedidoEnStock.cantidad,
+            responsable: "Sistema",
+            motivo: `Liberación de reserva por eliminación del pedido ${pedidoAEliminar.remito}`,
+            remito: pedidoAEliminar.remito,
+            cliente_nombre: pedidoAEliminar.cliente?.nombre,
+            vendedor_id: pedidoAEliminar.vendedor_id?.toString(),
+            estado_pedido: "eliminado",
+            req: req
+          });
+
           console.log(`✅ Stock reservado liberado para ${producto.idStock}: -${pedidoEnStock.cantidad} unidades`)
           console.log(`✅ Pedido eliminado del array pedidos`)
 
@@ -1250,6 +1315,22 @@ export const deletePedido = async (req: Request, res: Response): Promise<void> =
             },
             { new: true },
           )
+
+          // ✅ Registrar movimiento de liberación de pendiente
+          await registrarMovimiento({
+            idStock: (producto.idStock as any).toString(),
+            idModelo: (producto.idModelo as any).toString(),
+            idPedido: (pedidoAEliminar._id as any).toString(),
+            tipo_movimiento: "liberacion",
+            cantidad: -pedidoEnStock.cantidad,
+            responsable: "Sistema",
+            motivo: `Liberación de pendiente por eliminación del pedido ${pedidoAEliminar.remito}`,
+            remito: pedidoAEliminar.remito,
+            cliente_nombre: pedidoAEliminar.cliente?.nombre,
+            vendedor_id: pedidoAEliminar.vendedor_id?.toString(),
+            estado_pedido: "eliminado",
+            req: req
+          });
 
           console.log(`✅ Stock pendiente liberado para ${producto.idStock}: -${pedidoEnStock.cantidad} unidades`)
           console.log(`✅ Pedido eliminado del array pedidos`)
@@ -1339,8 +1420,7 @@ export const añadirComentario = async (req: Request, res: Response): Promise<vo
         { new: true },
       )
       console.log(
-        `✅ Comentario de producto ${
-          comentarioAnterior ? "reemplazado" : "añadido"
+        `✅ Comentario de producto ${comentarioAnterior ? "reemplazado" : "añadido"
         } correctamente al índice ${indiceProducto}`,
       )
       if (comentarioAnterior) {
