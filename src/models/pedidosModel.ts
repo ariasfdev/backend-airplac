@@ -7,6 +7,7 @@ export interface IPedido extends Document {
     nombre: string;
     direccion: string;
     contacto: string;
+    dni_cuil?: string; // <-- nuevo campo
   };
   comentario_cliente: string;
   productos: {
@@ -47,6 +48,7 @@ const PedidoSchema: Schema = new Schema({
     nombre: { type: String },
     direccion: { type: String },
     contacto: { type: String },
+    dni_cuil: { type: String }, // <-- nuevo campo
   },
   comentario_cliente: { type: String },
   productos: [

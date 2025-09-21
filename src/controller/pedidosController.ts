@@ -227,6 +227,7 @@ export const getPedidos = async (req: Request, res: Response): Promise<void> => 
           cliente: pedido.cliente?.nombre || "",
           direccion: pedido.cliente?.direccion || "",
           contacto: pedido.cliente?.contacto || "",
+          dni_cuil: pedido.cliente?.dni_cuil || "",
           comentario_cliente: pedido.comentario_cliente || "",
           detalle: primerProducto?.modelo || "Sin modelo",
           cantidadM2: primerProducto?.cantidad || 0,
