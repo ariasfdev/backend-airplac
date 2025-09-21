@@ -6,7 +6,9 @@ import vendedoresRoutes from "./routes/vendedoresRoutes";
 import pedidosRoutes from "./routes/pedidosRoutes";
 import modelosRoutes from "./routes/modelosRoutes";
 import productosRoutes from "./routes/productosRoutes";
+import trazabilidadRoutes from "./routes/trazabilidadRoutes";
 import path from "path";
+
 // import pedidosRoutes from './routes/pedidosRoutes';
 
 const app = express();
@@ -30,6 +32,8 @@ app.use("/api/vendedores", vendedoresRoutes);
 app.use("/api/pedidos", pedidosRoutes);
 app.use("/api/modelos", modelosRoutes);
 app.use("/api/productos", productosRoutes);
+app.use("/api/trazabilidad", trazabilidadRoutes);
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
+
 
 export default app;

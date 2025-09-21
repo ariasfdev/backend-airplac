@@ -4,6 +4,7 @@ import Produccion from "../models/produccionModel";
 import Pedido from "../models/pedidosModel";
 import Modelos from "../models/modelosModel";
 import Precio from "../models/precios.model";
+import { registrarMovimiento } from "../utils/movimientosStock";
 
 export const getAllStocks = async (
   req: Request,
@@ -247,6 +248,13 @@ export const updateStock = async (
   try {
     console.log("Datos recibidos:", req.body); // ✅ Verifica los datos que llegan al backend
 
+    // Obtener el stock actual para calcular diferencias
+    const stockAnterior = await Stock.findById(req.params.id);
+    if (!stockAnterior) {
+      res.status(404).json({ message: "Stock no encontrado" });
+      return;
+    }
+
     // ✅ Si stockActivo viene false, cambiarlo a true
     const updateData = { ...req.body };
     if (updateData.stockActivo === false) {
@@ -263,6 +271,25 @@ export const updateStock = async (
       res.status(404).json({ message: "Stock no encontrado" });
       return;
     }
+
+    // ✅ Registrar movimiento si hay cambio en el stock
+    if (req.body.stock !== undefined && req.body.stock !== stockAnterior.stock) {
+      const diferenciaStock = req.body.stock - stockAnterior.stock;
+      if (diferenciaStock !== 0) {
+        await registrarMovimiento({
+          idStock: req.params.id,
+          idModelo: updatedStock.idModelo?.toString() || "",
+          tipo_movimiento: diferenciaStock > 0 ? "produccion" : "ajuste",
+          cantidad: diferenciaStock,
+          responsable: "Sistema",
+          motivo: diferenciaStock > 0
+            ? "Incremento de stock manual"
+            : "Decremento de stock manual",
+          req: req
+        });
+      }
+    }
+
     res.json({ message: "Stock actualizado con éxito", stock: updatedStock });
   } catch (error) {
     res.status(400).json({ message: "Error al actualizar el stock", error });

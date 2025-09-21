@@ -56,3 +56,4 @@ const sinCosto = productos.filter(p => p.costo === 0).length;
 
 console.log(`💰 Productos con costo: ${conCosto}`);
 console.log(`❌ Productos sin costo (costo = 0): ${sinCosto}`);
+
