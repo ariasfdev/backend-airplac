@@ -5,14 +5,13 @@ import Pedido from "../models/pedidosModel";
 import Modelos from "../models/modelosModel";
 import Precio from "../models/precios.model";
 import { registrarMovimiento } from "../utils/movimientosStock";
-
 export const getAllStocks = async (
   req: Request,
   res: Response
 ): Promise<void> => {
   try {
-    // Obtener todos los stocks y popular con el modelo asociado
-    const stocks = await Stock.find().lean(); // lean() mejora el rendimiento
+    // Obtener solo los stocks que tienen stockActivo true
+    const stocks = await Stock.find({ stockActivo: true }).lean();
 
     // Obtener todos los modelos en un solo query para reducir consultas
     const modelos = await Modelos.find(
@@ -28,9 +27,7 @@ export const getAllStocks = async (
     stocks.forEach(stock => {
       if (stock.pedidos) {
         stock.pedidos.forEach((pedido: any) => {
-
           pedidosIds.add(pedido.idPedido.toString());
-
         });
       }
     });

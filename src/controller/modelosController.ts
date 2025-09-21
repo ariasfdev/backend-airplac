@@ -163,6 +163,13 @@ export const eliminarModelo = async (
       res.status(404).json({ message: "Modelo no encontrado" });
       return;
     }
+
+    // Desactivar el stock asociado al modelo
+    await Stock.updateMany(
+      { idModelo: id },
+      { $set: { stockActivo: false } }
+    );
+
     res.status(200).json({ message: "Modelo dado de baja correctamente" });
   } catch (error) {
     console.error("Error al dar de baja el modelo:", error);
