@@ -577,3 +577,174 @@ export const validarPedidosConStock = async (
   // Función comentada porque usa propiedades que no existen en la interfaz
 };
 */
+
+// ✅ NUEVOS ENDPOINTS PARA MANEJO ESPECÍFICO DE STOCK
+
+/**
+ * Suma una cantidad al stock actual
+ */
+export const addToStock = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { cantidad, responsable } = req.body;
+    const stockId = req.params.id;
+
+    if (cantidad === undefined || !responsable) {
+      res.status(400).json({ 
+        message: "Faltan datos requeridos: cantidad y responsable" 
+      });
+      return;
+    }
+
+    if (cantidad <= 0) {
+      res.status(400).json({ 
+        message: "La cantidad debe ser mayor a 0 para sumar" 
+      });
+      return;
+    }
+
+    // Obtener el stock actual
+    const stockAnterior = await Stock.findById(stockId);
+    if (!stockAnterior) {
+      res.status(404).json({ message: "Stock no encontrado" });
+      return;
+    }
+
+    const valorAnterior = stockAnterior.stock;
+    const valorNuevo = valorAnterior + cantidad;
+
+    // Actualizar el stock sumando la cantidad
+    const stockActualizado = await Stock.findByIdAndUpdate(
+      stockId,
+      { 
+        $inc: { stock: cantidad },
+        stockActivo: true // Activar si estaba desactivado
+      },
+      { new: true }
+    );
+
+    if (!stockActualizado) {
+      res.status(404).json({ message: "Error al actualizar el stock" });
+      return;
+    }
+
+    // Registrar el movimiento
+    await registrarMovimiento({
+      idStock: stockId,
+      idModelo: stockActualizado.idModelo?.toString() || "",
+      tipo_movimiento: "produccion",
+      cantidad: cantidad,
+      responsable: responsable,
+      motivo: `Suma de ${cantidad} unidades al stock`,
+      req: req
+    });
+
+    // ✅ Evaluar pedidos pendientes después de sumar stock
+    await evaluarPedidosPendientes(stockId);
+    console.log(`🔄 Evaluando pedidos pendientes después de sumar ${cantidad} al stock`);
+
+    res.json({
+      message: "Cantidad sumada al stock con éxito",
+      stock: stockActualizado,
+      valorAnterior,
+      valorNuevo,
+      cantidadSumada: cantidad
+    });
+
+  } catch (error) {
+    console.error("Error al sumar al stock:", error);
+    res.status(500).json({ message: "Error interno del servidor" });
+  }
+};
+
+/**
+ * Resta una cantidad del stock actual
+ */
+export const subtractFromStock = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { cantidad, responsable } = req.body;
+    const stockId = req.params.id;
+
+    if (cantidad === undefined || !responsable) {
+      res.status(400).json({ 
+        message: "Faltan datos requeridos: cantidad y responsable" 
+      });
+      return;
+    }
+
+    if (cantidad <= 0) {
+      res.status(400).json({ 
+        message: "La cantidad debe ser mayor a 0 para restar" 
+      });
+      return;
+    }
+
+    // Obtener el stock actual
+    const stockAnterior = await Stock.findById(stockId);
+    if (!stockAnterior) {
+      res.status(404).json({ message: "Stock no encontrado" });
+      return;
+    }
+
+    const valorAnterior = stockAnterior.stock;
+    const stockReservado = stockAnterior.reservado || 0;
+    const stockDisponible = valorAnterior - stockReservado;
+    
+    // ✅ VALIDAR CONTRA STOCK DISPONIBLE, NO TOTAL
+    if (cantidad > stockDisponible) {
+      res.status(400).json({ 
+        message: `No se puede restar ${cantidad} unidades. Stock disponible: ${stockDisponible} (Total: ${valorAnterior}, Reservado: ${stockReservado})`,
+        stockTotal: valorAnterior,
+        stockReservado: stockReservado,
+        stockDisponible: stockDisponible,
+        cantidadARestar: cantidad
+      });
+      return;
+    }
+
+    const valorNuevo = valorAnterior - cantidad;
+
+    // Actualizar el stock restando la cantidad
+    const stockActualizado = await Stock.findByIdAndUpdate(
+      stockId,
+      { 
+        $inc: { stock: -cantidad },
+        stockActivo: true // Activar si estaba desactivado
+      },
+      { new: true }
+    );
+
+    if (!stockActualizado) {
+      res.status(404).json({ message: "Error al actualizar el stock" });
+      return;
+    }
+
+    // Registrar el movimiento
+    await registrarMovimiento({
+      idStock: stockId,
+      idModelo: stockActualizado.idModelo?.toString() || "",
+      tipo_movimiento: "ajuste",
+      cantidad: -cantidad, // Negativo para indicar que es una resta
+      responsable: responsable,
+      motivo: `Resta de ${cantidad} unidades del stock`,
+      req: req
+    });
+
+    res.json({
+      message: "Cantidad restada del stock con éxito",
+      stock: stockActualizado,
+      valorAnterior,
+      valorNuevo,
+      cantidadRestada: cantidad
+    });
+
+  } catch (error) {
+    console.error("Error al restar del stock:", error);
+    res.status(500).json({ message: "Error interno del servidor" });
+  }
+};

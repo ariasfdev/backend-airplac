@@ -11,6 +11,8 @@ import {
   obtenerProduccionesPorStock,
   actualizarStock,
   refrescar, // Importa la nueva función
+  addToStock,   // Nuevo controlador para suma
+  subtractFromStock // Nuevo controlador para resta
 } from "../controller/stockController";
 import { getPreciosIdModelo, actualizarPrecios } from "../controller/precioController";
 const router = Router();
@@ -23,6 +25,10 @@ router.get("/:id", getStockById); // Rutas dinámicas después
 router.get("/importacion/:idVendedor", getAllStocksImportacion);
 router.put("/:id", updateStock);
 router.delete("/:id", deleteStock);
+
+// Nuevos endpoints para manejo específico de stock
+router.put("/add/:id", addToStock);           // Suma al stock
+router.put("/subtract/:id", subtractFromStock); // Resta del stock
 
 // Endpoint para creación masiva de stocks
 //router.post("/bulk", bulkCreateStock);
