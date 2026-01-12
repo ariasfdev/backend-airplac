@@ -14,7 +14,7 @@ import {
   addToStock,   // Nuevo controlador para suma
   subtractFromStock // Nuevo controlador para resta
 } from "../controller/stockController";
-import { getPreciosIdModelo, actualizarPrecios } from "../controller/precioController";
+import { getPreciosIdModelo, actualizarPrecios, darBajaPrecio } from "../controller/precioController";
 const router = Router();
 
 // Stock endpoints
@@ -39,6 +39,8 @@ router.post("/actualizar-stock", actualizarStock);
 router.post("/produccion", agregarProduccion);
 router.put("/produccion/entrega", registrarEntrega);
 router.get("/produccion/:idStock", obtenerProduccionesPorStock);
+// Rutas de precios - las más específicas primero
+router.put("/precios/:idPrecio/baja", darBajaPrecio);
 router.get("/precios/:idModelo", getPreciosIdModelo);
 router.put("/precios/:idModelo", actualizarPrecios);
 

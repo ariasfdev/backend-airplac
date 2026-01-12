@@ -7,7 +7,7 @@ export const getPreciosIdModelo = async (req: Request, res: Response): Promise<v
   try {
     const { idModelo } = req.params;
     console.log(req.params)
-    const precios = await Precio.find({ id_modelo: idModelo });
+    const precios = await Precio.find({ id_modelo: idModelo, activo: true });
     console.log(precios);
     res.status(200).json(precios);
   } catch (error) {
@@ -120,5 +120,30 @@ export const actualizarPrecios = async (req: Request, res: Response): Promise<vo
   } catch (error) {
     console.error("Error en actualizarPrecios:", error);
     res.status(500).json({ message: "Error al actualizar los precios" });
+  }
+}
+
+export const darBajaPrecio = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { idPrecio } = req.params;
+
+    const precio = await Precio.findByIdAndUpdate(
+      idPrecio,
+      { activo: false },
+      { new: true, runValidators: true }
+    );
+
+    if (!precio) {
+      res.status(404).json({ message: "Precio no encontrado" });
+      return;
+    }
+
+    res.status(200).json({
+      message: "Precio dado de baja correctamente",
+      precio
+    });
+  } catch (error) {
+    console.error("Error en darBajaPrecio:", error);
+    res.status(500).json({ message: "Error al dar de baja el precio" });
   }
 }
