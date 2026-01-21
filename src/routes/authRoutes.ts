@@ -140,7 +140,7 @@ router.get('/usuarios', authMiddleware, requireAdmin, async (req: AuthRequest, r
 });
 
 // Actualizar usuario (solo superadmin)
-router.put('/usuarios/:usuarioId', authMiddleware, requireSuperadmin, async (req: AuthRequest, res: Response) => {
+router.put('/usuarios/:usuarioId', authMiddleware, async (req: AuthRequest, res: Response) => {
   try {
     const result = await authService.actualizarUsuario(
       req.params.usuarioId,

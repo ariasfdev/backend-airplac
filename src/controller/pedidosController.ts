@@ -118,6 +118,17 @@ export const getPedidos = async (req: Request, res: Response): Promise<void> => 
       },
       { $unwind: { path: "$precioInfo", preserveNullAndEmptyArrays: true } },
 
+      // Lookup del usuario (vendedor) asociado al pedido
+      {
+        $lookup: {
+          from: "usuarios",
+          localField: "usuarioId",
+          foreignField: "_id",
+          as: "usuarioInfo",
+        },
+      },
+      { $unwind: { path: "$usuarioInfo", preserveNullAndEmptyArrays: true } },
+
       {
         $group: {
           _id: "$_id",
@@ -139,6 +150,8 @@ export const getPedidos = async (req: Request, res: Response): Promise<void> => 
           remitos: { $first: "$remitos" },
           comentario_cliente: { $first: "$comentario_cliente" },
           tipo: { $first: "$tipo" }, // <-- Asegura que el campo tipo se incluya aquí
+          vendedor_razonSocial: { $first: "$usuarioInfo.razonSocial" },
+          vendedor_nombreUsuario: { $first: "$usuarioInfo.nombreUsuario" },
           productos: {
             $push: {
               idStock: "$productos.idStock",
@@ -226,6 +239,7 @@ export const getPedidos = async (req: Request, res: Response): Promise<void> => 
           fecha: pedido.fecha_pedido?.toISOString().split("T")[0] || "",
           año: new Date(pedido.fecha_pedido).getFullYear().toString(),
           cliente: pedido.cliente?.nombre || "",
+          vendedor: pedido.vendedor_razonSocial || pedido.vendedor_nombreUsuario || "",
           direccion: pedido.cliente?.direccion || "",
           contacto: pedido.cliente?.contacto || "",
           dni_cuil: pedido.cliente?.dni_cuil || "",

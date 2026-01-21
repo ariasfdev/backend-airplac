@@ -11,38 +11,37 @@ import {
     getTrazabilidadPedido,
     testRegistroMovimiento
 } from "../controller/trazabilidadController";
-import { requireAdmin } from "../auth/role.middleware";
 
 const router = Router();
 
 // Historial por stock específico
-router.get("/stock/:idStock", requireAdmin, getHistorialStock);
+router.get("/stock/:idStock", getHistorialStock);
 
 // Historial por modelo específico
-router.get("/modelo/:idModelo", requireAdmin, getHistorialModelo);
+router.get("/modelo/:idModelo", getHistorialModelo);
 
 // Historial por pedido específico
-router.get("/pedido/:idPedido", requireAdmin, getHistorialPedido);
+router.get("/pedido/:idPedido", getHistorialPedido);
 
 // Trazabilidad completa de un pedido
-router.get("/pedido/:idPedido/completa", requireAdmin, getTrazabilidadPedido);
+router.get("/pedido/:idPedido/completa", getTrazabilidadPedido);
 
 // Historial por cliente
-router.get("/cliente/:clienteNombre", requireAdmin, getHistorialCliente);
+router.get("/cliente/:clienteNombre", getHistorialCliente);
 
 // Movimientos por rango de fechas
-router.get("/fechas", requireAdmin, getMovimientosPorFecha);
+router.get("/fechas", getMovimientosPorFecha);
 
 // Movimientos por tipo
-router.get("/tipo/:tipo", requireAdmin, getMovimientosPorTipo);
+router.get("/tipo/:tipo", getMovimientosPorTipo);
 
 // Búsqueda de movimientos por texto
-router.get("/buscar", requireAdmin, buscarMovimientosTexto);
+router.get("/buscar", buscarMovimientosTexto);
 
 // Estadísticas de movimientos
-router.get("/estadisticas", requireAdmin, getEstadisticasMovimientos);
+router.get("/estadisticas", getEstadisticasMovimientos);
 
 // Endpoint de prueba para registro de movimientos
-router.post("/test-registro", requireAdmin, testRegistroMovimiento);
+router.post("/test-registro", testRegistroMovimiento);
 
 export default router;

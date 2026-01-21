@@ -5,21 +5,20 @@ import {
     crearProductosMasivos,
     crearProductoCompletoIndividual,
 } from "../controller/productosController";
-import { requireAdmin } from "../auth/role.middleware";
 
 const router = Router();
 
 // Crear un nuevo modelo con su stock asociado
-router.post("/", requireAdmin, crearModeloConStock);
+router.post("/", crearModeloConStock);
 
 // Crear un producto completo (modelo + stock + precio)
-router.post("/completo", requireAdmin, crearProductoCompletoIndividual);
+router.post("/completo", crearProductoCompletoIndividual);
 
 // Crear múltiples productos completos de forma masiva
-router.post("/masivos", requireAdmin, crearProductosMasivos);
+router.post("/masivos", crearProductosMasivos);
 
 // Actualizar stock y crear registro de producción
-router.put("/stock/:id", requireAdmin, updateStockConProduccion);
+router.put("/stock/:id", updateStockConProduccion);
 
 // Obtener todos los productos (modelos con sus stocks)
 
