@@ -20,7 +20,7 @@ export const getPreciosIdModelo = async (req: Request, res: Response): Promise<v
 
 export const actualizarPrecios = async (req: Request, res: Response): Promise<void> => {
   try {
-    console.log(req.params)
+    console.log("actualizarPrecios", req.params)
     const { idModelo } = req.params;
     const { precios } = req.body; // Array de precios a actualizar/crear
 
