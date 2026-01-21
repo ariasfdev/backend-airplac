@@ -2,7 +2,7 @@ import mongoose, { Schema, Document, ObjectId } from "mongoose";
 
 export interface IPedido extends Document {
   remito: string;
-  vendedor_id: ObjectId;
+  usuarioId: ObjectId;
   cliente: {
     nombre: string;
     direccion: string;
@@ -39,9 +39,9 @@ export interface IPedido extends Document {
 
 const PedidoSchema: Schema = new Schema({
   remito: { type: String },
-  vendedor_id: {
+  usuarioId: {
     type: Schema.Types.ObjectId,
-    ref: "Vendedores",
+    ref: "Usuario",
     required: true,
   },
   cliente: {

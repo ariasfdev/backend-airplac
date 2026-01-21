@@ -1,4 +1,5 @@
 import type { Request, Response } from "express"
+import type { AuthRequest } from "../auth/auth.middleware"
 import Pedido from "../models/pedidosModel"
 import Stock from "../models/stockModel" // Modelo para el stock
 import Modelos from "../models/modelosModel" // Modelo para los modelos
@@ -267,11 +268,16 @@ export const getPedidos = async (req: Request, res: Response): Promise<void> => 
   }
 }
 
-export const createPedido = async (req: Request, res: Response): Promise<void> => {
+export const createPedido = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    // Tomar usuarioId automáticamente del token autenticado
+    const usuarioId = req.user?.id;
+    if (!usuarioId) {
+      res.status(401).json({ message: 'Usuario no autenticado' });
+      return;
+    }
+
     const {
-      remito,
-      vendedor_id,
       cliente,
       productos,
       estado,
@@ -290,6 +296,12 @@ export const createPedido = async (req: Request, res: Response): Promise<void> =
       tipo, // <-- extraer tipo del body
     } = req.body
 
+    // Generar remito automáticamente si no viene
+    let remito = req.body.remito;
+    if (!remito) {
+      remito = `PED-${Date.now()}`;
+    }
+
     // 1️⃣ Crear el pedido con estado_stock "pendiente" por defecto
     const productosConEstado = productos.map((prod: any) => ({
       ...prod,
@@ -299,7 +311,7 @@ export const createPedido = async (req: Request, res: Response): Promise<void> =
 
     const nuevoPedido = new Pedido({
       remito,
-      vendedor_id,
+      usuarioId,
       cliente,
       productos: productosConEstado,
       estado,
@@ -377,7 +389,7 @@ export const createPedido = async (req: Request, res: Response): Promise<void> =
               motivo: `Reserva por pedido ${pedidoGuardado.remito}`,
               remito: pedidoGuardado.remito,
               cliente_nombre: pedidoGuardado.cliente?.nombre,
-              vendedor_id: pedidoGuardado.vendedor_id?.toString(),
+              vendedor_id: pedidoGuardado.usuarioId?.toString(),
               estado_pedido: pedidoGuardado.estado,
               req: req
             });
@@ -411,7 +423,7 @@ export const createPedido = async (req: Request, res: Response): Promise<void> =
               motivo: `Stock pendiente por pedido ${pedidoGuardado.remito} - Stock insuficiente`,
               remito: pedidoGuardado.remito,
               cliente_nombre: pedidoGuardado.cliente?.nombre,
-              vendedor_id: pedidoGuardado.vendedor_id?.toString(),
+              vendedor_id: pedidoGuardado.usuarioId?.toString(),
               estado_pedido: pedidoGuardado.estado,
               req: req
             });
@@ -528,7 +540,7 @@ export const cambiarEstadoAEntregado = async (req: Request, res: Response): Prom
         motivo: `Entrega del pedido ${pedido.remito}`,
         remito: pedido.remito,
         cliente_nombre: pedido.cliente?.nombre,
-        vendedor_id: pedido.vendedor_id?.toString(),
+        vendedor_id: pedido.usuarioId?.toString(),
         estado_pedido: "entregado",
         req: req
       });
@@ -659,7 +671,7 @@ export const updatePedido = async (req: Request, res: Response): Promise<void> =
               motivo: `Reserva por cambio de presupuesto a pedido ${pedidoExistente.remito}`,
               remito: pedidoExistente.remito,
               cliente_nombre: pedidoExistente.cliente?.nombre,
-              vendedor_id: pedidoExistente.vendedor_id?.toString(),
+              vendedor_id: pedidoExistente.usuarioId?.toString(),
               estado_pedido: "pedido",
               req: req
             });
@@ -687,7 +699,7 @@ export const updatePedido = async (req: Request, res: Response): Promise<void> =
               motivo: `Stock pendiente por cambio de presupuesto a pedido ${pedidoExistente.remito} - Stock insuficiente`,
               remito: pedidoExistente.remito,
               cliente_nombre: pedidoExistente.cliente?.nombre,
-              vendedor_id: pedidoExistente.vendedor_id?.toString(),
+              vendedor_id: pedidoExistente.usuarioId?.toString(),
               estado_pedido: "pedido",
               req: req
             });
@@ -1401,7 +1413,7 @@ export const deletePedido = async (req: Request, res: Response): Promise<void> =
             motivo: `Liberación de reserva por eliminación del pedido ${pedidoAEliminar.remito}`,
             remito: pedidoAEliminar.remito,
             cliente_nombre: pedidoAEliminar.cliente?.nombre,
-            vendedor_id: pedidoAEliminar.vendedor_id?.toString(),
+            vendedor_id: pedidoAEliminar.usuarioId?.toString(),
             estado_pedido: "eliminado",
             req: req
           });
@@ -1439,7 +1451,7 @@ export const deletePedido = async (req: Request, res: Response): Promise<void> =
             motivo: `Liberación de pendiente por eliminación del pedido ${pedidoAEliminar.remito}`,
             remito: pedidoAEliminar.remito,
             cliente_nombre: pedidoAEliminar.cliente?.nombre,
-            vendedor_id: pedidoAEliminar.vendedor_id?.toString(),
+            vendedor_id: pedidoAEliminar.usuarioId?.toString(),
             estado_pedido: "eliminado",
             req: req
           });

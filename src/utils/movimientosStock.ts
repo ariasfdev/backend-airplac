@@ -56,7 +56,7 @@ export const registrarMovimiento = async (datos: DatosMovimiento): Promise<void>
                 infoPedido = {
                     remito: pedido.remito,
                     cliente_nombre: pedido.cliente?.nombre,
-                    vendedor_id: pedido.vendedor_id,
+                    vendedor_id: pedido.usuarioId,
                     estado_pedido: pedido.estado
                 };
             }
@@ -180,7 +180,7 @@ export const obtenerHistorialStock = async (idStock: string, limit: number = 50)
     try {
         return await MovimientoStock.find({ idStock })
             .populate('idPedido', 'remito cliente estado')
-            .populate('vendedor_id', 'nombre')
+            .populate('vendedor_id', 'nombreUsuario mail')
             .sort({ fecha: -1 })
             .limit(limit);
     } catch (error) {
@@ -196,7 +196,7 @@ export const obtenerHistorialModelo = async (idModelo: string, limit: number = 5
     try {
         return await MovimientoStock.find({ idModelo })
             .populate('idPedido', 'remito cliente estado')
-            .populate('vendedor_id', 'nombre')
+            .populate('vendedor_id', 'nombreUsuario mail')
             .sort({ fecha: -1 })
             .limit(limit);
     } catch (error) {
@@ -213,7 +213,7 @@ export const obtenerHistorialPedido = async (idPedido: string) => {
         return await MovimientoStock.find({ idPedido })
             .populate('idStock', 'producto modelo')
             .populate('idModelo', 'producto modelo')
-            .populate('vendedor_id', 'nombre')
+            .populate('vendedor_id', 'nombreUsuario mail')
             .sort({ fecha: -1 });
     } catch (error) {
         console.error("❌ Error al obtener historial de pedido:", error);

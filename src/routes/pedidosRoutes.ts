@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { authMiddleware } from "../auth/auth.middleware";
+import { requireAdmin, requireAdminOrVendedor } from "../auth/role.middleware";
 import {
   getPedidos,
   createPedido,
@@ -14,17 +16,17 @@ import {
 const router = Router();
 
 // Endpoints existentes
-router.get("/", getPedidos);
-router.post("/", createPedido);
-router.get("/actualizarValores", actualizarValores);
-router.post("/:id/remito", uploadRemito);
-router.get("/remito/:filename", getRemito);
-router.put("/entregado/:id", cambiarEstadoAEntregado);
-router.post("/comentario/:id", añadirComentario);
+router.get("/", requireAdminOrVendedor, getPedidos);
+router.post("/", authMiddleware, requireAdminOrVendedor, createPedido);
+router.get("/actualizarValores", requireAdmin, actualizarValores);
+router.post("/:id/remito", requireAdminOrVendedor, uploadRemito);
+router.get("/remito/:filename", requireAdminOrVendedor, getRemito);
+router.put("/entregado/:id", requireAdmin, cambiarEstadoAEntregado);
+router.post("/comentario/:id", requireAdminOrVendedor, añadirComentario);
 
 
 // ✅ Nuevo endpoint para editar un pedido
-router.put("/editar/:id", updatePedido);
-router.delete("/eliminar/:id", deletePedido);
+router.put("/editar/:id", requireAdmin, updatePedido);
+router.delete("/eliminar/:id", requireAdmin, deletePedido);
 
 export default router;
