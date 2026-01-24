@@ -35,8 +35,8 @@ router.put("/entregado/:id", authMiddleware, requireRole(["Admin", "Superadmin"]
 // Todos los usuarios autenticados pueden añadir comentarios
 router.post("/comentario/:id", authMiddleware, añadirComentario);
 
-// Solo Admin y Superadmin pueden editar pedidos
-router.put("/editar/:id", authMiddleware, requireRole(["Admin", "Superadmin"]), updatePedido);
+// Editar pedidos: permitido para Admin, Superadmin y Vendedor
+router.put("/editar/:id", authMiddleware, requireRole(["Admin", "Superadmin", "Vendedor"]), updatePedido);
 
 // Solo Admin y Superadmin pueden eliminar pedidos
 router.delete("/eliminar/:id", authMiddleware, requireRole(["Admin", "Superadmin"]), deletePedido);

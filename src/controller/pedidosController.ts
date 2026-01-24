@@ -3,6 +3,7 @@ import type { AuthRequest } from "../auth/auth.middleware"
 import Pedido from "../models/pedidosModel"
 import Stock from "../models/stockModel" // Modelo para el stock
 import Modelos from "../models/modelosModel" // Modelo para los modelos
+import { Rol } from "../models/rolModel"
 import path from "path"
 import fs from "fs"
 import { registrarMovimiento } from "../utils/movimientosStock"
@@ -132,6 +133,7 @@ export const getPedidos = async (req: Request, res: Response): Promise<void> => 
       {
         $group: {
           _id: "$_id",
+          usuarioId: { $first: "$usuarioId" },
           remito: { $first: "$remito" },
           fecha_pedido: { $first: "$fecha_pedido" },
           fecha_entrega_estimada: { $first: "$fecha_entrega_estimada" },
@@ -235,6 +237,7 @@ export const getPedidos = async (req: Request, res: Response): Promise<void> => 
 
         return {
           id: pedido._id,
+          usuarioId: pedido.usuarioId,
           remito: pedido.remito,
           fecha: pedido.fecha_pedido?.toISOString().split("T")[0] || "",
           año: new Date(pedido.fecha_pedido).getFullYear().toString(),
@@ -594,7 +597,7 @@ export const cambiarEstadoAEntregado = async (req: Request, res: Response): Prom
   }
 }
 
-export const updatePedido = async (req: Request, res: Response): Promise<void> => {
+export const updatePedido = async (req: AuthRequest, res: Response): Promise<void> => {
   const { id } = req.params
   const updates = req.body
 
@@ -621,6 +624,26 @@ export const updatePedido = async (req: Request, res: Response): Promise<void> =
         estado_stock: p.estado_stock,
       })),
     })
+
+    // Restricción para vendedores: solo pueden editar sus propios pedidos y no entregados
+    if (req.user?.rolId) {
+      const rol = await Rol.findById(req.user.rolId)
+      if (rol?.nombre === "Vendedor") {
+        // Debe ser el creador del pedido
+        if (!pedidoExistente.usuarioId || pedidoExistente.usuarioId.toString() !== (req.user.id || "")) {
+          res.status(403).json({ message: "No puedes editar pedidos de otros usuarios" })
+          return
+        }
+        // No debe estar entregado
+        const entregado = (pedidoExistente.productos || []).some(
+          (p: any) => (p.estado_stock || "").toLowerCase() === "entregado"
+        )
+        if (entregado) {
+          res.status(403).json({ message: "No puedes editar un pedido entregado" })
+          return
+        }
+      }
+    }
 
     const tipoAnterior = pedidoExistente.tipo || "pedido"
     const tipoNuevo = updates.tipo || tipoAnterior
