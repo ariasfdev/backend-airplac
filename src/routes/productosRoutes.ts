@@ -5,21 +5,20 @@ import {
     crearProductosMasivos,
     crearProductoCompletoIndividual,
 } from "../controller/productosController";
+import { authMiddleware, requireRole } from "../auth/auth.middleware";
 
 const router = Router();
 
-// Crear un nuevo modelo con su stock asociado
-router.post("/", crearModeloConStock);
+// Solo Admin y Superadmin pueden crear modelos con stock
+router.post("/", authMiddleware, requireRole(["Admin", "Superadmin"]), crearModeloConStock);
 
-// Crear un producto completo (modelo + stock + precio)
-router.post("/completo", crearProductoCompletoIndividual);
+// Solo Admin y Superadmin pueden crear productos completos
+router.post("/completo", authMiddleware, requireRole(["Admin", "Superadmin"]), crearProductoCompletoIndividual);
 
-// Crear múltiples productos completos de forma masiva
-router.post("/masivos", crearProductosMasivos);
+// Solo Admin y Superadmin pueden crear productos de forma masiva
+router.post("/masivos", authMiddleware, requireRole(["Admin", "Superadmin"]), crearProductosMasivos);
 
-// Actualizar stock y crear registro de producción
-router.put("/stock/:id", updateStockConProduccion);
-
-// Obtener todos los productos (modelos con sus stocks)
+// Solo Admin y Superadmin pueden actualizar stock y crear registro de producción
+router.put("/stock/:id", authMiddleware, requireRole(["Admin", "Superadmin"]), updateStockConProduccion);
 
 export default router; 

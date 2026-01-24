@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authMiddleware } from "../auth/auth.middleware";
+import { authMiddleware, requireRole } from "../auth/auth.middleware";
 import {
   getPedidos,
   createPedido,
@@ -9,23 +9,36 @@ import {
   updatePedido,
   añadirComentario,
   actualizarValores,
-  deletePedido, // ✅ Importar la nueva función
+  deletePedido,
 } from "../controller/pedidosController";
 
 const router = Router();
 
-// Endpoints existentes
-router.get("/", getPedidos);
+// Todos los usuarios autenticados pueden ver pedidos
+router.get("/", authMiddleware, getPedidos);
+
+// Todos los usuarios autenticados pueden crear pedidos (vendedores, admin, superadmin)
 router.post("/", authMiddleware, createPedido);
-router.get("/actualizarValores", actualizarValores);
-router.post("/:id/remito", uploadRemito);
-router.get("/remito/:filename", getRemito);
-router.put("/entregado/:id", cambiarEstadoAEntregado);
-router.post("/comentario/:id", añadirComentario);
 
+// Todos los usuarios autenticados pueden actualizar valores de pedidos
+router.get("/actualizarValores", authMiddleware, actualizarValores);
 
-// ✅ Nuevo endpoint para editar un pedido
-router.put("/editar/:id", updatePedido);
-router.delete("/eliminar/:id", deletePedido);
+// Todos los usuarios autenticados pueden subir remitos
+router.post("/:id/remito", authMiddleware, uploadRemito);
+
+// Todos los usuarios autenticados pueden ver remitos
+router.get("/remito/:filename", authMiddleware, getRemito);
+
+// Solo Admin y Superadmin pueden cambiar estado a entregado
+router.put("/entregado/:id", authMiddleware, requireRole(["Admin", "Superadmin"]), cambiarEstadoAEntregado);
+
+// Todos los usuarios autenticados pueden añadir comentarios
+router.post("/comentario/:id", authMiddleware, añadirComentario);
+
+// Solo Admin y Superadmin pueden editar pedidos
+router.put("/editar/:id", authMiddleware, requireRole(["Admin", "Superadmin"]), updatePedido);
+
+// Solo Admin y Superadmin pueden eliminar pedidos
+router.delete("/eliminar/:id", authMiddleware, requireRole(["Admin", "Superadmin"]), deletePedido);
 
 export default router;
