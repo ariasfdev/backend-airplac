@@ -135,10 +135,16 @@ export class AuthService {
   }
 
   getCookieOptions(): CookieOptions {
+    // En producción, usar 'lax' en lugar de 'strict' para permitir cookies en redirecciones
+    // y verificar si estamos usando HTTPS para 'secure'
+    const isProduction = process.env.NODE_ENV === 'production';
+    const frontendOrigin = process.env.FRONTEND_ORIGIN || '';
+    const useSecure = isProduction && frontendOrigin.startsWith('https://');
+    
     return {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
+      secure: useSecure, // Solo true si es HTTPS
+      sameSite: isProduction ? 'lax' : 'strict', // 'lax' en producción para mejor compatibilidad
       maxAge: Number(process.env.JWT_EXPIRATION_ACCESS || '3600') * 1000,
     };
   }
@@ -275,8 +281,18 @@ export class AuthService {
     return this.auditService.obtenerLogs(usuarioId, limite);
   }
 
-  async obtenerUsuarios(): Promise<IUsuario[]> {
-    return Usuario.find().select('-contrasena').lean();
+  async obtenerUsuarios(): Promise<any[]> {
+    const usuarios = await Usuario.find()
+      .select('-contrasena')
+      .populate('rolId', 'nombre')
+      .lean();
+    
+    // Transformar para incluir el nombre del rol directamente
+    return usuarios.map((usuario: any) => ({
+      ...usuario,
+      rolNombre: usuario.rolId?.nombre || null,
+      rolId: usuario.rolId?._id || usuario.rolId
+    }));
   }
 
   async obtenerRoles(): Promise<IRol[]> {

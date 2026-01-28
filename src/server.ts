@@ -1,6 +1,7 @@
 import app from './app';
 import connectDB from './config/database';
 import { SuperadminInitService } from './auth/services/superadmin-init.service';
+import { initializeRoles } from './scripts/initializeRoles';
 import { migratePedidosUsuarios } from './scripts/migratePedidosUsuarios';
 import dotenv from 'dotenv';
 
@@ -12,6 +13,9 @@ const startServer = async () => {
   try {
     // Conectar a MongoDB
     await connectDB();
+
+    // Inicializar roles por defecto (idempotente)
+    await initializeRoles();
 
     // Inicializar superadmin
     await SuperadminInitService.initialize();
