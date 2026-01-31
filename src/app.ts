@@ -8,6 +8,7 @@ import pedidosRoutes from "./routes/pedidosRoutes";
 import modelosRoutes from "./routes/modelosRoutes";
 import productosRoutes from "./routes/productosRoutes";
 import trazabilidadRoutes from "./routes/trazabilidadRoutes";
+import reportesRoutes from "./routes/reportesRoutes";
 import authRoutes from "./routes/authRoutes";
 import { authMiddleware } from "./auth/auth.middleware";
 import path from "path";
@@ -43,6 +44,7 @@ app.use("/api/pedidos", pedidosRoutes);
 app.use("/api/modelos", modelosRoutes);
 app.use("/api/productos", productosRoutes);
 app.use("/api/trazabilidad", trazabilidadRoutes);
+app.use("/api/reportes", reportesRoutes);
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 export default app;
