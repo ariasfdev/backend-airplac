@@ -1,5 +1,6 @@
 import type { Response } from "express";
 import type { AuthRequest } from "../auth/auth.middleware";
+import { Types } from "mongoose";
 import Pedido from "../models/pedidosModel";
 import Stock from "../models/stockModel";
 import Modelos from "../models/modelosModel";
@@ -12,13 +13,38 @@ import { Usuario } from "../models/usuarioModel";
 
 // Validar rango de fechas
 const getDateRange = (desde?: string, hasta?: string) => {
-  const desde_date = desde ? new Date(desde) : new Date(new Date().getFullYear(), 0, 1);
+  const desde_date = desde ? new Date(desde) : new Date(1970, 0, 1); // Toda la BD desde el inicio
   const hasta_date = hasta ? new Date(hasta) : new Date();
   
   // Asegurar que hasta incluya todo el día
   hasta_date.setHours(23, 59, 59, 999);
   
   return { desde_date, hasta_date };
+};
+
+/**
+ * 0. UTILIDADES - Obtener modelos y tipos disponibles
+ */
+export const getModelosDisponibles = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const modelos = await Modelos.find({ fecha_baja: { $exists: false } }).select("_id modelo producto ancho alto").lean();
+    
+    // Obtener productos únicos (estos son los "tipos" que se muestran)
+    const tipos = [...new Set(modelos.map(m => m.producto))];
+
+    res.json({
+      modelos: modelos.map(m => ({
+        _id: m._id,
+        nombre: m.modelo,
+        producto: m.producto,
+        unidad: m.ancho
+      })),
+      tipos: tipos.sort()
+    });
+  } catch (error) {
+    console.error("Error obteniendo modelos disponibles:", error);
+    res.status(500).json({ error: "Error al obtener modelos disponibles" });
+  }
 };
 
 /**
@@ -172,7 +198,7 @@ export const getDashboard = async (req: AuthRequest, res: Response): Promise<voi
  */
 export const getVentasPorModelo = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { desde, hasta, idModelo, filtro_estado } = req.query;
+    const { desde, hasta, idModelo, filtro_estado, tipo_producto } = req.query;
     const { desde_date, hasta_date } = getDateRange(desde as string, hasta as string);
 
     const matchStage: any = {
@@ -204,11 +230,20 @@ export const getVentasPorModelo = async (req: AuthRequest, res: Response): Promi
         }
       },
       {
+        $match: {
+          ...(idModelo && { "modelo._id": new Types.ObjectId(idModelo as string) }),
+          ...(tipo_producto && { "modelo.producto": tipo_producto })
+        }
+      },
+      {
         $group: {
           _id: "$productos.idModelo",
           nombreModelo: { $first: { $arrayElemAt: ["$modelo.modelo", 0] } },
+          producto: { $first: { $arrayElemAt: ["$modelo.producto", 0] } },
+          tipo: { $first: { $arrayElemAt: ["$modelo.tipo", 0] } },
+          unidad: { $first: { $arrayElemAt: ["$modelo.ancho", 0] } },
           cantidad_vendida: { $sum: "$productos.cantidad" },
-          ingresos_brutos: { $sum: "$total" }, // Total del pedido
+          ingresos_brutos: { $sum: "$total" },
           descuentos_aplicados: { $sum: "$descuento" },
           fletes: { $sum: "$flete" },
           adelantos: { $sum: "$adelanto" },
@@ -227,6 +262,9 @@ export const getVentasPorModelo = async (req: AuthRequest, res: Response): Promi
         $project: {
           _id: 1,
           nombreModelo: 1,
+          producto: 1,
+          tipo: 1,
+          unidad: 1,
           cantidad_vendida: 1,
           ingresos_brutos: 1,
           descuentos_aplicados: 1,
@@ -288,7 +326,7 @@ export const getVentasPorModelo = async (req: AuthRequest, res: Response): Promi
  */
 export const getVentasPorVendedor = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { desde, hasta, usuarioId, filtro_estado } = req.query;
+    const { desde, hasta, usuarioId, filtro_estado, idModelo, tipo_producto } = req.query;
     const { desde_date, hasta_date } = getDateRange(desde as string, hasta as string);
 
     const matchStage: any = {
@@ -296,7 +334,7 @@ export const getVentasPorVendedor = async (req: AuthRequest, res: Response): Pro
     };
 
     if (usuarioId) {
-      matchStage.usuarioId = { $oid: usuarioId as string };
+      matchStage.usuarioId = new Types.ObjectId(usuarioId as string);
     }
 
     if (filtro_estado) {
@@ -305,6 +343,21 @@ export const getVentasPorVendedor = async (req: AuthRequest, res: Response): Pro
 
     const ventasPorVendedor = await Pedido.aggregate([
       { $match: matchStage },
+      { $unwind: "$productos" },
+      {
+        $lookup: {
+          from: "Modelos",
+          localField: "productos.idModelo",
+          foreignField: "_id",
+          as: "modelo"
+        }
+      },
+      {
+        $match: {
+          ...(idModelo && { "modelo._id": new Types.ObjectId(idModelo as string) }),
+          ...(tipo_producto && { "modelo.producto": tipo_producto })
+        }
+      },
       {
         $group: {
           _id: "$usuarioId",
@@ -613,7 +666,7 @@ export const getComparativaVendedores = async (req: AuthRequest, res: Response):
  */
 export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { desde, hasta, idModelo } = req.query;
+    const { desde, hasta, idModelo, tipo_producto } = req.query;
     const { desde_date, hasta_date } = getDateRange(desde as string, hasta as string);
 
     const matchStage: any = {
@@ -641,9 +694,18 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
         }
       },
       {
+        $match: {
+          ...(idModelo && { "modelo._id": new Types.ObjectId(idModelo as string) }),
+          ...(tipo_producto && { "modelo.producto": tipo_producto })
+        }
+      },
+      {
         $group: {
           _id: "$productos.idModelo",
           nombreModelo: { $first: { $arrayElemAt: ["$modelo.modelo", 0] } },
+          producto: { $first: { $arrayElemAt: ["$modelo.producto", 0] } },
+          tipo: { $first: { $arrayElemAt: ["$modelo.tipo", 0] } },
+          unidad: { $first: { $arrayElemAt: ["$modelo.ancho", 0] } },
           cantidad: { $sum: "$productos.cantidad" },
           ingresos_brutos: { $sum: "$total" },
           costo_total: {
@@ -664,6 +726,9 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
         $project: {
           _id: 1,
           nombreModelo: 1,
+          producto: 1,
+          tipo: 1,
+          unidad: 1,
           cantidad: 1,
           ingresos_brutos: 1,
           costo_total: 1,
@@ -1290,7 +1355,7 @@ export const getAnalisisDescuentosExtras = async (req: AuthRequest, res: Respons
  */
 export const getEstadoPedidos = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { desde, hasta, estado, usuarioId, limite = 50 } = req.query;
+    const { desde, hasta, estado, usuarioId, limite = 50, idModelo, tipo_producto } = req.query;
     const { desde_date, hasta_date } = getDateRange(desde as string, hasta as string);
 
     const matchStage: any = {
@@ -1306,27 +1371,49 @@ export const getEstadoPedidos = async (req: AuthRequest, res: Response): Promise
       matchStage.usuarioId = usuarioId;
     }
 
-    // Resumen por estado
-    const resumenEstado = await Pedido.aggregate([
+    // Resumen por estado (incluyendo modelos si se filtra)
+    let resumenEstadoBase: any = [
       {
         $match: {
           fecha_pedido: { $gte: desde_date, $lte: hasta_date },
           tipo: "pedido"
         }
-      },
-      {
-        $group: {
-          _id: "$estado",
-          cantidad: { $sum: 1 },
-          monto: { $sum: "$total" },
-          monto_pendiente: { $sum: "$total_pendiente" }
+      }
+    ];
+
+    if (idModelo || tipo_producto) {
+      resumenEstadoBase.push({ $unwind: "$productos" });
+      resumenEstadoBase.push({
+        $lookup: {
+          from: "Modelos",
+          localField: "productos.idModelo",
+          foreignField: "_id",
+          as: "modelo"
         }
-      },
-      { $sort: { cantidad: -1 } }
-    ]);
+      });
+      resumenEstadoBase.push({
+        $match: {
+          ...(idModelo && { "modelo._id": new Types.ObjectId(idModelo as string) }),
+          ...(tipo_producto && { "modelo.producto": tipo_producto })
+        }
+      });
+    }
+
+    resumenEstadoBase.push({
+      $group: {
+        _id: "$estado",
+        cantidad: { $sum: 1 },
+        monto: { $sum: "$total" },
+        monto_pendiente: { $sum: "$total_pendiente" },
+        producto: { $first: { $arrayElemAt: ["$modelo.producto", 0] } }
+      }
+    });
+    resumenEstadoBase.push({ $sort: { cantidad: -1 } });
+
+    const resumenEstado = await Pedido.aggregate(resumenEstadoBase);
 
     // Detalles de pedidos
-    const detallePedidos = await Pedido.aggregate([
+    let detalleBase: any = [
       { $match: matchStage },
       {
         $lookup: {
@@ -1335,62 +1422,88 @@ export const getEstadoPedidos = async (req: AuthRequest, res: Response): Promise
           foreignField: "_id",
           as: "usuario"
         }
-      },
-      {
-        $addFields: {
-          dias_transcurridos: {
-            $divide: [
-              {
-                $subtract: [new Date(), "$fecha_pedido"]
-              },
-              1000 * 60 * 60 * 24
-            ]
-          },
-          dias_hasta_entrega: {
-            $divide: [
-              {
-                $subtract: ["$fecha_entrega_estimada", "$fecha_pedido"]
-              },
-              1000 * 60 * 60 * 24
-            ]
-          },
-          demora_real: {
-            $cond: [
-              { $eq: ["$estado", "entregado"] },
-              {
-                $divide: [
-                  {
-                    $subtract: [new Date(), "$fecha_pedido"]
-                  },
-                  1000 * 60 * 60 * 24
-                ]
-              },
-              null
-            ]
-          }
+      }
+    ];
+
+    if (idModelo || tipo_producto) {
+      detalleBase.push({ $unwind: "$productos" });
+      detalleBase.push({
+        $lookup: {
+          from: "Modelos",
+          localField: "productos.idModelo",
+          foreignField: "_id",
+          as: "modelo"
         }
-      },
-      {
-        $project: {
-          remito: 1,
-          estado: 1,
-          cliente_nombre: "$cliente.nombre",
-          vendedor: { $arrayElemAt: ["$usuario.nombreUsuario", 0] },
-          fecha_pedido: 1,
-          fecha_entrega_estimada: 1,
-          fecha_entrega_real: 1,
-          total: 1,
-          total_pendiente: 1,
-          dias_transcurridos: { $round: ["$dias_transcurridos", 1] },
-          dias_hasta_entrega: { $round: ["$dias_hasta_entrega", 1] },
-          demora_real: { $round: ["$demora_real", 1] },
-          metodo_pago: 1,
-          adelanto: 1
+      });
+      detalleBase.push({
+        $match: {
+          ...(idModelo && { "modelo._id": new Types.ObjectId(idModelo as string) }),
+          ...(tipo_producto && { "modelo.producto": tipo_producto })
         }
-      },
-      { $sort: { fecha_pedido: -1 } },
-      { $limit: parseInt(limite as string) || 50 }
-    ]);
+      });
+    }
+
+    detalleBase.push({
+      $addFields: {
+        dias_transcurridos: {
+          $divide: [
+            {
+              $subtract: [new Date(), "$fecha_pedido"]
+            },
+            1000 * 60 * 60 * 24
+          ]
+        },
+        dias_hasta_entrega: {
+          $divide: [
+            {
+              $subtract: ["$fecha_entrega_estimada", "$fecha_pedido"]
+            },
+            1000 * 60 * 60 * 24
+          ]
+        },
+        demora_real: {
+          $cond: [
+            { $eq: ["$estado", "entregado"] },
+            {
+              $divide: [
+                {
+                  $subtract: [new Date(), "$fecha_pedido"]
+                },
+                1000 * 60 * 60 * 24
+              ]
+            },
+            null
+          ]
+        }
+      }
+    });
+    
+    detalleBase.push({
+      $project: {
+        remito: 1,
+        estado: 1,
+        cliente_nombre: "$cliente.nombre",
+        vendedor: { $arrayElemAt: ["$usuario.nombreUsuario", 0] },
+        modelo_nombre: { $arrayElemAt: ["$modelo.modelo", 0] },
+        producto: { $arrayElemAt: ["$modelo.producto", 0] },
+        tipo_producto: { $arrayElemAt: ["$modelo.tipo", 0] },
+        fecha_pedido: 1,
+        fecha_entrega_estimada: 1,
+        fecha_entrega_real: 1,
+        total: 1,
+        total_pendiente: 1,
+        dias_transcurridos: { $round: ["$dias_transcurridos", 1] },
+        dias_hasta_entrega: { $round: ["$dias_hasta_entrega", 1] },
+        demora_real: { $round: ["$demora_real", 1] },
+        metodo_pago: 1,
+        adelanto: 1
+      }
+    });
+    
+    detalleBase.push({ $sort: { fecha_pedido: -1 } });
+    detalleBase.push({ $limit: parseInt(limite as string) || 50 });
+
+    const detallePedidos = await Pedido.aggregate(detalleBase);
 
     // Estadísticas de tiempo
     const estadisticasTiempo = await Pedido.aggregate([

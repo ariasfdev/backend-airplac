@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { authMiddleware, requireRole } from "../auth/auth.middleware";
 import {
+  getModelosDisponibles,
   getDashboard,
   getVentasPorModelo,
   getVentasPorVendedor,
@@ -20,6 +21,9 @@ const router = Router();
 // Todos los reportes requieren autenticación y rol Admin/Superadmin
 router.use(authMiddleware);
 router.use(requireRole(["Admin", "Superadmin"]));
+
+// Utilidades
+router.get("/modelos-disponibles", getModelosDisponibles);
 
 // FASE 1: Reportes principales
 router.get("/dashboard", getDashboard);
