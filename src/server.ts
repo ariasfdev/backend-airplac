@@ -1,8 +1,6 @@
 import app from './app';
 import connectDB from './config/database';
 import { SuperadminInitService } from './auth/services/superadmin-init.service';
-import { initializeRoles } from './scripts/initializeRoles';
-import { migratePedidosUsuarios } from './scripts/migratePedidosUsuarios';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -14,15 +12,8 @@ const startServer = async () => {
     // Conectar a MongoDB
     await connectDB();
 
-    // Inicializar roles por defecto (idempotente)
-    await initializeRoles();
-
     // Inicializar superadmin
     await SuperadminInitService.initialize();
-
-    // Ejecutar migración de pedidos (idempotente)
-    console.log('🔄 Verificando si hay pedidos para migrar...');
-    await migratePedidosUsuarios();
 
     // Iniciar servidor
     app.listen(PORT, () => {

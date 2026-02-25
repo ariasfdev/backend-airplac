@@ -1,5 +1,5 @@
 import Pedido from "../models/pedidosModel";
-import Usuario from "../models/usuarioModel";
+import { Usuario } from "../models/usuarioModel";
 
 export async function assignPedidoUsuarioDefault(): Promise<void> {
   const defaultUsuarioId = process.env.DEFAULT_PEDIDOS_USUARIO_ID;
