@@ -2090,3 +2090,135 @@ export const getMetodosPagoProcedenncia = async (req: AuthRequest, res: Response
     res.status(500).json({ error: "Error al generar reporte de métodos de pago y procedencia" });
   }
 };
+
+/**
+ * 13. VENTAS POR PROCEDENCIA
+ */
+export const getVentasPorProcedencia = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { desde, hasta, idModelo, tipo_producto, estado, disponible, tipo_documento } = req.query;
+    const { desde_date, hasta_date } = getDateRange(desde as string, hasta as string);
+    const idModeloFiltro = idModelo ? String(idModelo) : undefined;
+    const disponibleFiltro = disponible ? String(disponible).toLowerCase() : undefined;
+
+    const matchStage: any = {
+      fecha_pedido: { $gte: desde_date, $lte: hasta_date }
+    };
+
+    if (tipo_documento) {
+      matchStage.tipo = tipo_documento;
+    }
+
+    if (estado) {
+      matchStage.estado = estado;
+    }
+
+    if (idModeloFiltro) {
+      matchStage.$expr = {
+        $eq: [
+          { $toString: { $arrayElemAt: ["$productos.idModelo", 0] } },
+          idModeloFiltro
+        ]
+      };
+    }
+
+    const pipeline: any[] = [
+      { $match: matchStage },
+      {
+        $addFields: {
+          producto_principal: { $arrayElemAt: ["$productos", 0] }
+        }
+      },
+      {
+        $lookup: {
+          from: "Modelos",
+          localField: "producto_principal.idModelo",
+          foreignField: "_id",
+          as: "modelo_principal"
+        }
+      },
+      {
+        $unwind: {
+          path: "$modelo_principal",
+          preserveNullAndEmptyArrays: true
+        }
+      }
+    ];
+
+    if (tipo_producto) {
+      pipeline.push({
+        $match: {
+          "modelo_principal.producto": tipo_producto
+        }
+      });
+    }
+
+    if (disponibleFiltro) {
+      pipeline.push({
+        $match: {
+          $expr: {
+            $eq: [
+              {
+                $toLower: {
+                  $ifNull: ["$producto_principal.estado_stock", "sin_estado"]
+                }
+              },
+              disponibleFiltro
+            ]
+          }
+        }
+      });
+    }
+
+    pipeline.push(
+      {
+        $group: {
+          _id: {
+            $toLower: {
+              $ifNull: ["$procedencia", "sin_procedencia"]
+            }
+          },
+          cantidad_ventas: { $sum: 1 },
+          total_facturado: { $sum: "$total" },
+          total_pendiente: { $sum: "$total_pendiente" },
+          ticket_promedio: { $avg: "$total" }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          procedencia: "$_id",
+          cantidad_ventas: 1,
+          total_facturado: 1,
+          total_pendiente: 1,
+          ticket_promedio: { $round: ["$ticket_promedio", 2] }
+        }
+      },
+      { $sort: { total_facturado: -1 } }
+    );
+
+    const data = await Pedido.aggregate(pipeline);
+
+    const totalVentas = data.reduce((sum, item) => sum + (item.cantidad_ventas || 0), 0);
+    const totalFacturado = data.reduce((sum, item) => sum + (item.total_facturado || 0), 0);
+    const totalPendiente = data.reduce((sum, item) => sum + (item.total_pendiente || 0), 0);
+
+    res.json({
+      data: data.map((item: any) => ({
+        ...item,
+        porcentaje_ventas: totalVentas > 0 ? parseFloat(((item.cantidad_ventas / totalVentas) * 100).toFixed(2)) : 0,
+        porcentaje_facturado: totalFacturado > 0 ? parseFloat(((item.total_facturado / totalFacturado) * 100).toFixed(2)) : 0
+      })),
+      resumen: {
+        total_procedencias: data.length,
+        total_ventas: totalVentas,
+        total_facturado: totalFacturado,
+        total_pendiente: totalPendiente,
+        ticket_promedio_general: totalVentas > 0 ? parseFloat((totalFacturado / totalVentas).toFixed(2)) : 0
+      }
+    });
+  } catch (error) {
+    console.error("Error en Ventas por Procedencia:", error);
+    res.status(500).json({ error: "Error al generar reporte de ventas por procedencia" });
+  }
+};

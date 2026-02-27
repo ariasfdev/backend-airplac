@@ -13,7 +13,8 @@ import {
   getAnalisisDescuentosExtras,
   getEstadoPedidos,
   getStockProduccion,
-  getMetodosPagoProcedenncia
+  getMetodosPagoProcedenncia,
+  getVentasPorProcedencia
 } from "../controller/reportesController";
 
 const router = Router();
@@ -44,5 +45,6 @@ router.get("/estado-pedidos", getEstadoPedidos);
 // FASE 4: Reportes operacionales
 router.get("/stock-produccion", getStockProduccion);
 router.get("/metodos-pago-procedencia", getMetodosPagoProcedenncia);
+router.get("/ventas-por-procedencia", getVentasPorProcedencia);
 
 export default router;
