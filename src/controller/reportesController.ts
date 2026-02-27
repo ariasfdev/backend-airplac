@@ -34,7 +34,7 @@ export const getModelosDisponibles = async (req: AuthRequest, res: Response): Pr
 
     res.json({
       modelos: modelos.map(m => ({
-        _id: m._id,
+        _id: m._id?.toString?.() || String(m._id),
         nombre: m.modelo,
         producto: m.producto,
         unidad: m.ancho,
@@ -689,20 +689,26 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
   try {
     const { desde, hasta, idModelo, tipo_producto } = req.query;
     const { desde_date, hasta_date } = getDateRange(desde as string, hasta as string);
+    const idModeloFiltro = idModelo ? (idModelo as string) : undefined;
+    const tipoProductoFiltro = tipo_producto ? (tipo_producto as string) : undefined;
 
     const matchStage: any = {
       fecha_pedido: { $gte: desde_date, $lte: hasta_date },
       tipo: "pedido"
     };
 
+    if (idModeloFiltro) {
+      matchStage.$expr = {
+        $eq: [
+          { $toString: { $arrayElemAt: ["$productos.idModelo", 0] } },
+          idModeloFiltro
+        ]
+      };
+    }
+
     const rentabilidadPorPedidoModelo = await Pedido.aggregate([
       { $match: matchStage },
       { $unwind: "$productos" },
-      {
-        $match: {
-          ...(idModelo && { "productos.idModelo": new Types.ObjectId(idModelo as string) })
-        }
-      },
       {
         $lookup: {
           from: "Modelos",
@@ -720,11 +726,6 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
         }
       },
       {
-        $match: {
-          ...(tipo_producto && { "modelo.producto": tipo_producto })
-        }
-      },
-      {
         $group: {
           _id: {
             pedidoId: "$_id",
@@ -735,11 +736,42 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
           tipo: { $first: { $arrayElemAt: ["$modelo.tipo", 0] } },
           unidad: { $first: "$productos.unidad" },
           cantidad: { $sum: "$productos.cantidad" },
-          ingresos_brutos_linea: {
+          base_reparto_linea: {
             $sum: {
-              $multiply: [
-                "$productos.cantidad",
-                { $ifNull: [{ $arrayElemAt: ["$precio.precio", 0] }, 0] }
+              $ifNull: [
+                "$productos.subtotal",
+                {
+                  $ifNull: [
+                    "$productos.total_linea",
+                    {
+                      $ifNull: [
+                        "$productos.total",
+                        {
+                          $ifNull: [
+                            "$productos.importe",
+                            {
+                              $multiply: [
+                                "$productos.cantidad",
+                                {
+                                  $ifNull: [
+                                    {
+                                      $cond: [
+                                        { $in: ["$metodo_pago", ["credito", "debito"]] },
+                                        { $arrayElemAt: ["$precio.precioTarjeta", 0] },
+                                        { $arrayElemAt: ["$precio.precio", 0] }
+                                      ]
+                                    },
+                                    0
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
               ]
             }
           },
@@ -751,16 +783,21 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
               ]
             }
           },
+          pedido_total: { $first: "$total" },
           pedido_descuento: { $first: "$descuento" }
         }
       }
     ]);
 
     const totalLineaPorPedido = new Map<string, number>();
+    const totalCantidadPorPedido = new Map<string, number>();
     rentabilidadPorPedidoModelo.forEach((item: any) => {
       const pedidoId = item._id.pedidoId.toString();
-      const acumulado = totalLineaPorPedido.get(pedidoId) || 0;
-      totalLineaPorPedido.set(pedidoId, acumulado + (item.ingresos_brutos_linea || 0));
+      const acumuladoLinea = totalLineaPorPedido.get(pedidoId) || 0;
+      totalLineaPorPedido.set(pedidoId, acumuladoLinea + (item.base_reparto_linea || 0));
+
+      const acumuladoCantidad = totalCantidadPorPedido.get(pedidoId) || 0;
+      totalCantidadPorPedido.set(pedidoId, acumuladoCantidad + (item.cantidad || 0));
     });
 
     const rentabilidadMap = new Map<string, any>();
@@ -768,8 +805,19 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
     rentabilidadPorPedidoModelo.forEach((item: any) => {
       const pedidoId = item._id.pedidoId.toString();
       const modeloId = item._id.modeloId.toString();
+      const coincideModelo = !idModeloFiltro || modeloId === idModeloFiltro;
+      const coincideTipo = !tipoProductoFiltro || item.producto === tipoProductoFiltro;
+
+      if (!coincideModelo || !coincideTipo) {
+        return;
+      }
+
       const totalPedidoLineas = totalLineaPorPedido.get(pedidoId) || 0;
-      const proporcion = totalPedidoLineas > 0 ? (item.ingresos_brutos_linea || 0) / totalPedidoLineas : 0;
+      const totalPedidoCantidad = totalCantidadPorPedido.get(pedidoId) || 0;
+      const proporcion = totalPedidoLineas > 0
+        ? (item.base_reparto_linea || 0) / totalPedidoLineas
+        : (totalPedidoCantidad > 0 ? (item.cantidad || 0) / totalPedidoCantidad : 0);
+      const ingresoAsignado = (item.pedido_total || 0) * proporcion;
       const descuentoAsignado = (item.pedido_descuento || 0) * proporcion;
 
       if (!rentabilidadMap.has(modeloId)) {
@@ -789,7 +837,7 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
 
       const acumuladoModelo = rentabilidadMap.get(modeloId);
       acumuladoModelo.cantidad += item.cantidad || 0;
-      acumuladoModelo.ingresos_brutos += item.ingresos_brutos_linea || 0;
+      acumuladoModelo.ingresos_brutos += ingresoAsignado;
       acumuladoModelo.costo_total += item.costo_total || 0;
       acumuladoModelo.descuentos += descuentoAsignado;
       acumuladoModelo.cantidad_pedidos_set.add(pedidoId);
@@ -1045,24 +1093,41 @@ export const getRentabilidadPorCliente = async (req: AuthRequest, res: Response)
       },
       {
         $group: {
-          _id: "$cliente.nombre",
+          _id: {
+            pedidoId: "$_id",
+            nombreCliente: "$cliente.nombre"
+          },
           cliente_dni: { $first: "$cliente.dni_cuil" },
           cliente_contacto: { $first: "$cliente.contacto" },
           cliente_direccion: { $first: "$cliente.direccion" },
-          ingresos: { $sum: "$total" },
-          costo_total: {
+          ingresos_pedido: { $first: "$total" },
+          costo_total_pedido: {
             $sum: {
               $multiply: [
                 "$productos.cantidad",
-                { $arrayElemAt: ["$precio.costo", 0] }
+                { $ifNull: [{ $arrayElemAt: ["$precio.costo", 0] }, 0] }
               ]
             }
           },
+          descuento_pedido: { $first: "$descuento" },
+          flete_pedido: { $first: "$flete" },
+          adelanto_pedido: { $first: "$adelanto" },
+          total_pendiente_pedido: { $first: "$total_pendiente" }
+        }
+      },
+      {
+        $group: {
+          _id: "$_id.nombreCliente",
+          cliente_dni: { $first: "$cliente_dni" },
+          cliente_contacto: { $first: "$cliente_contacto" },
+          cliente_direccion: { $first: "$cliente_direccion" },
+          ingresos: { $sum: "$ingresos_pedido" },
+          costo_total: { $sum: "$costo_total_pedido" },
           cantidad_pedidos: { $sum: 1 },
-          descuentos: { $sum: "$descuento" },
-          fletes: { $sum: "$flete" },
-          adelantos: { $sum: "$adelanto" },
-          total_pendiente: { $sum: "$total_pendiente" }
+          descuentos: { $sum: "$descuento_pedido" },
+          fletes: { $sum: "$flete_pedido" },
+          adelantos: { $sum: "$adelanto_pedido" },
+          total_pendiente: { $sum: "$total_pendiente_pedido" }
         }
       },
       {
@@ -1386,6 +1451,7 @@ export const getEstadoPedidos = async (req: AuthRequest, res: Response): Promise
   try {
     const { desde, hasta, estado, usuarioId, limite = 50, idModelo, tipo_producto } = req.query;
     const { desde_date, hasta_date } = getDateRange(desde as string, hasta as string);
+    const idModeloFiltro = idModelo ? String(idModelo) : undefined;
 
     const matchStage: any = {
       fecha_pedido: { $gte: desde_date, $lte: hasta_date },
@@ -1400,18 +1466,22 @@ export const getEstadoPedidos = async (req: AuthRequest, res: Response): Promise
       matchStage.usuarioId = usuarioId;
     }
 
-    // Resumen por estado (incluyendo modelos si se filtra)
+    if (idModeloFiltro) {
+      matchStage.$expr = {
+        $eq: [
+          { $toString: { $arrayElemAt: ["$productos.idModelo", 0] } },
+          idModeloFiltro
+        ]
+      };
+    }
+
+    // Resumen por estado de disponibilidad del producto
     let resumenEstadoBase: any = [
-      {
-        $match: {
-          fecha_pedido: { $gte: desde_date, $lte: hasta_date },
-          tipo: "pedido"
-        }
-      }
+      { $match: matchStage },
+      { $unwind: "$productos" }
     ];
 
-    if (idModelo || tipo_producto) {
-      resumenEstadoBase.push({ $unwind: "$productos" });
+    if (tipo_producto) {
       resumenEstadoBase.push({
         $lookup: {
           from: "Modelos",
@@ -1421,20 +1491,63 @@ export const getEstadoPedidos = async (req: AuthRequest, res: Response): Promise
         }
       });
       resumenEstadoBase.push({
+        $unwind: {
+          path: "$modelo",
+          preserveNullAndEmptyArrays: false
+        }
+      });
+      resumenEstadoBase.push({
         $match: {
-          ...(idModelo && { "modelo._id": new Types.ObjectId(idModelo as string) }),
-          ...(tipo_producto && { "modelo.producto": tipo_producto })
+          "modelo.producto": tipo_producto
         }
       });
     }
 
     resumenEstadoBase.push({
       $group: {
-        _id: "$estado",
+        _id: "$_id",
+        estados_stock: {
+          $addToSet: {
+            $toLower: {
+              $ifNull: ["$productos.estado_stock", "sin_estado"]
+            }
+          }
+        },
+        monto: { $first: "$total" },
+        monto_pendiente: { $first: "$total_pendiente" }
+      }
+    });
+
+    resumenEstadoBase.push({
+      $addFields: {
+        estado_disponibilidad: {
+          $switch: {
+            branches: [
+              { case: { $in: ["pendiente", "$estados_stock"] }, then: "pendiente" },
+              { case: { $in: ["disponible", "$estados_stock"] }, then: "disponible" },
+              { case: { $in: ["entregado", "$estados_stock"] }, then: "entregado" }
+            ],
+            default: { $ifNull: [{ $arrayElemAt: ["$estados_stock", 0] }, "sin_estado"] }
+          }
+        }
+      }
+    });
+
+    resumenEstadoBase.push({
+      $group: {
+        _id: "$estado_disponibilidad",
         cantidad: { $sum: 1 },
-        monto: { $sum: "$total" },
-        monto_pendiente: { $sum: "$total_pendiente" },
-        producto: { $first: { $arrayElemAt: ["$modelo.producto", 0] } }
+        monto: { $sum: "$monto" },
+        monto_pendiente: { $sum: "$monto_pendiente" }
+      }
+    });
+
+    resumenEstadoBase.push({
+      $project: {
+        _id: 1,
+        cantidad: 1,
+        monto: 1,
+        monto_pendiente: 1
       }
     });
     resumenEstadoBase.push({ $sort: { cantidad: -1 } });
@@ -1456,6 +1569,7 @@ export const getEstadoPedidos = async (req: AuthRequest, res: Response): Promise
 
     if (idModelo || tipo_producto) {
       detalleBase.push({ $unwind: "$productos" });
+
       detalleBase.push({
         $lookup: {
           from: "Modelos",
@@ -1464,12 +1578,14 @@ export const getEstadoPedidos = async (req: AuthRequest, res: Response): Promise
           as: "modelo"
         }
       });
-      detalleBase.push({
-        $match: {
-          ...(idModelo && { "modelo._id": new Types.ObjectId(idModelo as string) }),
-          ...(tipo_producto && { "modelo.producto": tipo_producto })
-        }
-      });
+
+      if (tipo_producto) {
+        detalleBase.push({
+          $match: {
+            "modelo.producto": tipo_producto
+          }
+        });
+      }
     }
 
     detalleBase.push({
