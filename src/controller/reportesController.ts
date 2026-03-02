@@ -871,8 +871,11 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
       };
     }).sort((a: any, b: any) => b.ingresos_brutos - a.ingresos_brutos);
 
-    const totalIngresos = rentabilidad.reduce((sum, item) => sum + item.ingresos_brutos, 0);
-    const totalGanancia = rentabilidad.reduce((sum, item) => sum + item.ganancia_neta, 0);
+    const totalIngresos = parseFloat(rentabilidad.reduce((sum, item) => sum + item.ingresos_brutos, 0).toFixed(2));
+    const totalCosto = parseFloat(rentabilidad.reduce((sum, item) => sum + item.costo_total, 0).toFixed(2));
+    const totalGananciaBruta = parseFloat(rentabilidad.reduce((sum, item) => sum + item.ganancia_bruta, 0).toFixed(2));
+    const totalCostosAdicionales = parseFloat(rentabilidad.reduce((sum, item) => sum + item.costos_adicionales, 0).toFixed(2));
+    const totalGananciaNeta = parseFloat(rentabilidad.reduce((sum, item) => sum + item.ganancia_neta, 0).toFixed(2));
     const margenPromedio = rentabilidad.length > 0 
       ? rentabilidad.reduce((sum, item) => sum + item.margen_neto_pct, 0) / rentabilidad.length
       : 0;
@@ -881,10 +884,10 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
       data: rentabilidad,
       resumen: {
         total_ingresos: totalIngresos,
-        total_costo: rentabilidad.reduce((sum, item) => sum + item.costo_total, 0),
-        total_ganancia_bruta: rentabilidad.reduce((sum, item) => sum + item.ganancia_bruta, 0),
-        total_costos_adicionales: rentabilidad.reduce((sum, item) => sum + item.costos_adicionales, 0),
-        total_ganancia_neta: totalGanancia,
+        total_costo: totalCosto,
+        total_ganancia_bruta: totalGananciaBruta,
+        total_costos_adicionales: totalCostosAdicionales,
+        total_ganancia_neta: totalGananciaNeta,
         margen_promedio: parseFloat(margenPromedio.toFixed(2)),
         modelo_mas_rentable: rentabilidad[0] || null,
         modelo_menos_rentable: rentabilidad[rentabilidad.length - 1] || null
@@ -1554,99 +1557,157 @@ export const getEstadoPedidos = async (req: AuthRequest, res: Response): Promise
 
     const resumenEstado = await Pedido.aggregate(resumenEstadoBase);
 
-    // Detalles de pedidos
-    let detalleBase: any = [
+    // Detalles de pedidos para expansión por fila de disponibilidad
+    const detalleBase: any[] = [
       { $match: matchStage },
       {
+        $addFields: {
+          producto_principal: { $arrayElemAt: ["$productos", 0] }
+        }
+      },
+      {
         $lookup: {
-          from: "usuarios",
-          localField: "usuarioId",
+          from: "Modelos",
+          localField: "producto_principal.idModelo",
           foreignField: "_id",
-          as: "usuario"
+          as: "modelo_principal"
+        }
+      },
+      {
+        $unwind: {
+          path: "$modelo_principal",
+          preserveNullAndEmptyArrays: true
         }
       }
     ];
 
-    if (idModelo || tipo_producto) {
-      detalleBase.push({ $unwind: "$productos" });
-
+    if (tipo_producto) {
       detalleBase.push({
-        $lookup: {
-          from: "Modelos",
-          localField: "productos.idModelo",
-          foreignField: "_id",
-          as: "modelo"
+        $match: {
+          "modelo_principal.producto": tipo_producto
         }
       });
-
-      if (tipo_producto) {
-        detalleBase.push({
-          $match: {
-            "modelo.producto": tipo_producto
-          }
-        });
-      }
     }
 
-    detalleBase.push({
-      $addFields: {
-        dias_transcurridos: {
-          $divide: [
+    detalleBase.push(
+      {
+        $lookup: {
+          from: "Modelos",
+          let: { idsModelos: "$productos.idModelo" },
+          pipeline: [
             {
-              $subtract: [new Date(), "$fecha_pedido"]
+              $match: {
+                $expr: {
+                  $in: ["$_id", "$$idsModelos"]
+                }
+              }
             },
-            1000 * 60 * 60 * 24
-          ]
-        },
-        dias_hasta_entrega: {
-          $divide: [
             {
-              $subtract: ["$fecha_entrega_estimada", "$fecha_pedido"]
-            },
-            1000 * 60 * 60 * 24
-          ]
-        },
-        demora_real: {
-          $cond: [
-            { $eq: ["$estado", "entregado"] },
-            {
-              $divide: [
-                {
-                  $subtract: [new Date(), "$fecha_pedido"]
-                },
-                1000 * 60 * 60 * 24
-              ]
-            },
-            null
-          ]
+              $project: {
+                _id: 1,
+                modelo: 1
+              }
+            }
+          ],
+          as: "modelos_info"
         }
-      }
-    });
-    
-    detalleBase.push({
-      $project: {
-        remito: 1,
-        estado: 1,
-        cliente_nombre: "$cliente.nombre",
-        vendedor: { $arrayElemAt: ["$usuario.nombreUsuario", 0] },
-        modelo_nombre: { $arrayElemAt: ["$modelo.modelo", 0] },
-        producto: { $arrayElemAt: ["$modelo.producto", 0] },
-        tipo_producto: { $arrayElemAt: ["$modelo.tipo", 0] },
-        fecha_pedido: 1,
-        fecha_entrega_estimada: 1,
-        fecha_entrega_real: 1,
-        total: 1,
-        total_pendiente: 1,
-        dias_transcurridos: { $round: ["$dias_transcurridos", 1] },
-        dias_hasta_entrega: { $round: ["$dias_hasta_entrega", 1] },
-        demora_real: { $round: ["$demora_real", 1] },
-        metodo_pago: 1,
-        adelanto: 1
-      }
-    });
-    
-    detalleBase.push({ $sort: { fecha_pedido: -1 } });
-    detalleBase.push({ $limit: parseInt(limite as string) || 50 });
+      },
+      {
+        $addFields: {
+          estados_stock: {
+            $map: {
+              input: "$productos",
+              as: "prod",
+              in: {
+                $toLower: {
+                  $ifNull: ["$$prod.estado_stock", "sin_estado"]
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        $addFields: {
+          estado_disponibilidad: {
+            $switch: {
+              branches: [
+                { case: { $in: ["pendiente", "$estados_stock"] }, then: "pendiente" },
+                { case: { $in: ["disponible", "$estados_stock"] }, then: "disponible" },
+                { case: { $in: ["entregado", "$estados_stock"] }, then: "entregado" }
+              ],
+              default: "sin_estado"
+            }
+          }
+        }
+      },
+      {
+        $project: {
+          remito: 1,
+          fecha_pedido: 1,
+          cliente_nombre: "$cliente.nombre",
+          total: 1,
+          estado_disponibilidad: 1,
+          productos_concatenados: {
+            $reduce: {
+              input: {
+                $map: {
+                  input: "$productos",
+                  as: "prod",
+                  in: {
+                    $let: {
+                      vars: {
+                        modelo_ref: {
+                          $arrayElemAt: [
+                            {
+                              $filter: {
+                                input: "$modelos_info",
+                                as: "m",
+                                cond: { $eq: ["$$m._id", "$$prod.idModelo"] }
+                              }
+                            },
+                            0
+                          ]
+                        }
+                      },
+                      in: {
+                        $concat: [
+                          { $ifNull: ["$$modelo_ref.modelo", "Producto"] },
+                          " x ",
+                          { $toString: { $ifNull: ["$$prod.cantidad", 0] } },
+                          {
+                            $cond: [
+                              {
+                                $or: [
+                                  { $eq: ["$$prod.unidad", null] },
+                                  { $eq: ["$$prod.unidad", ""] }
+                                ]
+                              },
+                              "",
+                              { $concat: [" ", "$$prod.unidad"] }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              initialValue: "",
+              in: {
+                $cond: [
+                  { $eq: ["$$value", ""] },
+                  "$$this",
+                  { $concat: ["$$value", ", ", "$$this"] }
+                ]
+              }
+            }
+          }
+        }
+      },
+      { $sort: { fecha_pedido: -1 } },
+      { $limit: parseInt(limite as string) || 50 }
+    );
 
     const detallePedidos = await Pedido.aggregate(detalleBase);
 
@@ -1722,12 +1783,7 @@ export const getEstadoPedidos = async (req: AuthRequest, res: Response): Promise
       },
       pendientes_cobro: pendientesCobro,
       pedidos_retrasados: pedidosRetrasados[0]?.cantidad || 0,
-      detalle_pedidos: detallePedidos.map((item: any) => ({
-        ...item,
-        dias_transcurridos: parseFloat(item.dias_transcurridos?.toString() || "0"),
-        dias_hasta_entrega: parseFloat(item.dias_hasta_entrega?.toString() || "0"),
-        demora_real: item.demora_real ? parseFloat(item.demora_real.toString()) : null
-      })),
+      detalle_pedidos: detallePedidos,
       periodo: { desde: desde_date, hasta: hasta_date }
     });
   } catch (error) {

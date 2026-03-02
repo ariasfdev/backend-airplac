@@ -313,6 +313,13 @@ export const createPedido = async (req: AuthRequest, res: Response): Promise<voi
       tipo, // <-- extraer tipo del body
     } = req.body
 
+    const tipoFinal = tipo || "pedido";
+    const esPresupuesto = tipoFinal === "presupuesto";
+
+    const estadoFinal = esPresupuesto ? (estado || "retira") : estado;
+    const metodoPagoFinal = esPresupuesto ? (metodo_pago || "efectivo") : metodo_pago;
+    const procedenciaFinal = esPresupuesto ? (procedencia || "local") : procedencia;
+
     // Generar remito automáticamente si no viene
     let remito = req.body.remito;
     if (!remito) {
@@ -331,13 +338,13 @@ export const createPedido = async (req: AuthRequest, res: Response): Promise<voi
       usuarioId,
       cliente,
       productos: productosConEstado,
-      estado,
+      estado: estadoFinal,
       estado_stock: "pendiente", // mantenemos por compatibilidad pero ya no es usado
       fecha_pedido,
       fecha_entrega_estimada,
       demora_calculada,
-      metodo_pago,
-      procedencia,
+      metodo_pago: metodoPagoFinal,
+      procedencia: procedenciaFinal,
       flete,
       descuento,
       adelanto,
@@ -345,13 +352,13 @@ export const createPedido = async (req: AuthRequest, res: Response): Promise<voi
       total,
       total_pendiente,
       valor_instalacion,
-      tipo: tipo || "pedido", // <-- asigna correctamente el tipo
+      tipo: tipoFinal, // <-- asigna correctamente el tipo
     })
 
     const pedidoGuardado = await nuevoPedido.save()
 
     // Solo afectar stock si NO es presupuesto
-    if ((tipo || "pedido") !== "presupuesto") {
+    if (tipoFinal !== "presupuesto") {
       // 2️⃣ Procesar la verificación de stock para cada producto
       for (const prod of productos) {
         const stock = await Stock.findById(prod.idStock)
