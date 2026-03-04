@@ -9,8 +9,15 @@ import Pedido from "../models/pedidosModel";
 export const getPreciosIdModelo = async (req: Request, res: Response): Promise<void> => {
   try {
     const { idModelo } = req.params;
+    const { incluir_inactivos } = req.query;
     console.log(req.params)
-    const precios = await Precio.find({ id_modelo: idModelo, activo: true });
+
+    const filtro: any = { id_modelo: idModelo };
+    if (String(incluir_inactivos) !== "1") {
+      filtro.activo = true;
+    }
+
+    const precios = await Precio.find(filtro).sort({ activo: -1, fecha: -1 });
     console.log(precios);
     res.status(200).json(precios);
   } catch (error) {
@@ -39,53 +46,61 @@ export const actualizarPrecios = async (req: Request, res: Response): Promise<vo
     for (const precioData of precios) {
       try {
         if (precioData._id) {
-          // Actualizar precio existente - solo campos permitidos
-          const camposPermitidos = {
-            es_base: precioData.es_base,
-            nombre_precio: precioData.nombre_precio,
-            costo: precioData.costo,
-            porcentaje_ganancia: precioData.porcentaje_ganancia,
-            porcentaje_tarjeta: precioData.porcentaje_tarjeta,
-            total_redondeo: precioData.total_redondeo
-          };
+          // Versionado: baja del precio actual + creación de uno nuevo
+          const precioActual = await Precio.findById(precioData._id);
 
-          // Filtrar campos undefined/null
-          const camposActualizar = Object.fromEntries(
-            Object.entries(camposPermitidos).filter(([_, value]) => value !== undefined && value !== null)
-          );
-
-          // Calcular precios si se actualizan campos que afectan el cálculo
-          if (camposActualizar.costo !== undefined || camposActualizar.porcentaje_ganancia !== undefined ||
-            camposActualizar.porcentaje_tarjeta !== undefined || camposActualizar.total_redondeo !== undefined) {
-
-            // Obtener el precio actual para tener todos los valores
-            const precioActual = await Precio.findById(precioData._id);
-            if (precioActual) {
-              const costo = camposActualizar.costo ?? precioActual.costo;
-              const porcentaje_ganancia = camposActualizar.porcentaje_ganancia ?? precioActual.porcentaje_ganancia;
-              const porcentaje_tarjeta = camposActualizar.porcentaje_tarjeta ?? precioActual.porcentaje_tarjeta;
-              const total_redondeo = camposActualizar.total_redondeo ?? precioActual.total_redondeo;
-
-              // Calcular nuevos precios
-              const base = costo * (1 + porcentaje_ganancia / 100) + total_redondeo;
-              const conTarjeta = base * (1 + porcentaje_tarjeta / 100);
-
-              camposActualizar.precio = Number(base.toFixed(2));
-              camposActualizar.precioTarjeta = Number(conTarjeta.toFixed(2));
-            }
-          }
-
-          const precioActualizado = await Precio.findByIdAndUpdate(
-            precioData._id,
-            camposActualizar,
-            { new: true, runValidators: true }
-          );
-
-          if (precioActualizado) {
-            resultados.actualizados++;
-          } else {
+          if (!precioActual) {
             resultados.errores.push(`No se encontró el precio con ID: ${precioData._id}`);
+            continue;
           }
+
+          const siguienteNombre = precioData.nombre_precio ?? precioActual.nombre_precio;
+          const siguienteEsBase = precioData.es_base ?? precioActual.es_base;
+          const siguienteCosto = precioData.costo ?? precioActual.costo;
+          const siguientePctGanancia = precioData.porcentaje_ganancia ?? precioActual.porcentaje_ganancia;
+          const siguientePctTarjeta = precioData.porcentaje_tarjeta ?? precioActual.porcentaje_tarjeta;
+          const siguienteRedondeo = precioData.total_redondeo ?? precioActual.total_redondeo;
+
+          const huboCambios =
+            siguienteNombre !== precioActual.nombre_precio ||
+            siguienteEsBase !== precioActual.es_base ||
+            Number(siguienteCosto) !== Number(precioActual.costo) ||
+            Number(siguientePctGanancia) !== Number(precioActual.porcentaje_ganancia) ||
+            Number(siguientePctTarjeta) !== Number(precioActual.porcentaje_tarjeta) ||
+            Number(siguienteRedondeo) !== Number(precioActual.total_redondeo);
+
+          if (!huboCambios) {
+            continue;
+          }
+
+          if (siguienteEsBase) {
+            await Precio.updateMany(
+              {
+                id_modelo: precioActual.id_modelo,
+                es_base: true,
+                activo: true,
+                _id: { $ne: precioActual._id }
+              },
+              { $set: { activo: false } }
+            );
+          }
+
+          await Precio.findByIdAndUpdate(precioActual._id, { activo: false }, { new: true });
+
+          const nuevoPrecio = new Precio({
+            id_modelo: precioActual.id_modelo,
+            nombre_precio: siguienteNombre,
+            es_base: siguienteEsBase,
+            activo: true,
+            costo: siguienteCosto,
+            porcentaje_ganancia: siguientePctGanancia,
+            porcentaje_tarjeta: siguientePctTarjeta,
+            total_redondeo: siguienteRedondeo,
+            fecha: new Date()
+          });
+
+          await nuevoPrecio.save();
+          resultados.actualizados++;
         } else {
           // Crear nuevo precio - solo campos permitidos
           const nuevoPrecio = new Precio({

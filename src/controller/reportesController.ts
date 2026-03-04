@@ -225,10 +225,21 @@ export const getVentasPorModelo = async (req: AuthRequest, res: Response): Promi
           producto_principal: { $arrayElemAt: ["$productos", 0] }
         }
       },
+      { $unwind: "$productos" },
+      {
+        $match: {
+          $expr: {
+            $eq: [
+              { $toString: "$productos.idModelo" },
+              { $toString: "$producto_principal.idModelo" }
+            ]
+          }
+        }
+      },
       {
         $lookup: {
           from: "Modelos",
-          localField: "producto_principal.idModelo",
+          localField: "productos.idModelo",
           foreignField: "_id",
           as: "modelo"
         }
@@ -236,7 +247,7 @@ export const getVentasPorModelo = async (req: AuthRequest, res: Response): Promi
       {
         $lookup: {
           from: "Precios",
-          localField: "producto_principal.id_precio",
+          localField: "productos.id_precio",
           foreignField: "_id",
           as: "precio"
         }
@@ -249,24 +260,49 @@ export const getVentasPorModelo = async (req: AuthRequest, res: Response): Promi
       },
       {
         $group: {
-          _id: "$producto_principal.idModelo",
+          _id: {
+            pedidoId: "$_id",
+            modeloId: "$productos.idModelo"
+          },
           nombreModelo: { $first: { $arrayElemAt: ["$modelo.modelo", 0] } },
           producto: { $first: { $arrayElemAt: ["$modelo.producto", 0] } },
           tipo: { $first: { $arrayElemAt: ["$modelo.tipo", 0] } },
-          unidad: { $first: "$producto_principal.unidad" },
-          cantidad_vendida: { $sum: "$producto_principal.cantidad" },
-          ingresos_brutos: { $sum: "$total" },
-          descuentos_aplicados: { $sum: "$descuento" },
-          fletes: { $sum: "$flete" },
-          adelantos: { $sum: "$adelanto" },
-          costo_total: {
+          unidad: { $first: "$productos.unidad" },
+          cantidad_vendida: { $sum: "$productos.cantidad" },
+          ingresos_linea: {
             $sum: {
               $multiply: [
-                "$producto_principal.cantidad",
-                { $ifNull: [{ $arrayElemAt: ["$precio.costo", 0] }, 0] }
+                "$productos.cantidad",
+                { $ifNull: [{ $arrayElemAt: ["$precio.precio", 0] }, 0] }
               ]
             }
           },
+          descuentos_aplicados: { $first: "$descuento" },
+          fletes: { $first: "$flete" },
+          adelantos: { $first: "$adelanto" },
+          costo_total: {
+            $sum: {
+              $multiply: [
+                "$productos.cantidad",
+                { $ifNull: [{ $arrayElemAt: ["$precio.costo", 0] }, 0] }
+              ]
+            }
+          }
+        }
+      },
+      {
+        $group: {
+          _id: "$_id.modeloId",
+          nombreModelo: { $first: "$nombreModelo" },
+          producto: { $first: "$producto" },
+          tipo: { $first: "$tipo" },
+          unidad: { $first: "$unidad" },
+          cantidad_vendida: { $sum: "$cantidad_vendida" },
+          ingresos_brutos: { $sum: "$ingresos_linea" },
+          descuentos_aplicados: { $sum: "$descuentos_aplicados" },
+          fletes: { $sum: "$fletes" },
+          adelantos: { $sum: "$adelantos" },
+          costo_total: { $sum: "$costo_total" },
           cantidad_pedidos: { $sum: 1 }
         }
       },
@@ -708,7 +744,22 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
 
     const rentabilidadPorPedidoModelo = await Pedido.aggregate([
       { $match: matchStage },
+      {
+        $addFields: {
+          producto_principal: { $arrayElemAt: ["$productos", 0] }
+        }
+      },
       { $unwind: "$productos" },
+      {
+        $match: {
+          $expr: {
+            $eq: [
+              { $toString: "$productos.idModelo" },
+              { $toString: "$producto_principal.idModelo" }
+            ]
+          }
+        }
+      },
       {
         $lookup: {
           from: "Modelos",
@@ -736,42 +787,11 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
           tipo: { $first: { $arrayElemAt: ["$modelo.tipo", 0] } },
           unidad: { $first: "$productos.unidad" },
           cantidad: { $sum: "$productos.cantidad" },
-          base_reparto_linea: {
+          ingresos_linea: {
             $sum: {
-              $ifNull: [
-                "$productos.subtotal",
-                {
-                  $ifNull: [
-                    "$productos.total_linea",
-                    {
-                      $ifNull: [
-                        "$productos.total",
-                        {
-                          $ifNull: [
-                            "$productos.importe",
-                            {
-                              $multiply: [
-                                "$productos.cantidad",
-                                {
-                                  $ifNull: [
-                                    {
-                                      $cond: [
-                                        { $in: ["$metodo_pago", ["credito", "debito"]] },
-                                        { $arrayElemAt: ["$precio.precioTarjeta", 0] },
-                                        { $arrayElemAt: ["$precio.precio", 0] }
-                                      ]
-                                    },
-                                    0
-                                  ]
-                                }
-                              ]
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ]
-                }
+              $multiply: [
+                "$productos.cantidad",
+                { $ifNull: [{ $arrayElemAt: ["$precio.precio", 0] }, 0] }
               ]
             }
           },
@@ -782,23 +802,10 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
                 { $ifNull: [{ $arrayElemAt: ["$precio.costo", 0] }, 0] }
               ]
             }
-          },
-          pedido_total: { $first: "$total" },
-          pedido_descuento: { $first: "$descuento" }
+          }
         }
       }
     ]);
-
-    const totalLineaPorPedido = new Map<string, number>();
-    const totalCantidadPorPedido = new Map<string, number>();
-    rentabilidadPorPedidoModelo.forEach((item: any) => {
-      const pedidoId = item._id.pedidoId.toString();
-      const acumuladoLinea = totalLineaPorPedido.get(pedidoId) || 0;
-      totalLineaPorPedido.set(pedidoId, acumuladoLinea + (item.base_reparto_linea || 0));
-
-      const acumuladoCantidad = totalCantidadPorPedido.get(pedidoId) || 0;
-      totalCantidadPorPedido.set(pedidoId, acumuladoCantidad + (item.cantidad || 0));
-    });
 
     const rentabilidadMap = new Map<string, any>();
 
@@ -812,13 +819,8 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
         return;
       }
 
-      const totalPedidoLineas = totalLineaPorPedido.get(pedidoId) || 0;
-      const totalPedidoCantidad = totalCantidadPorPedido.get(pedidoId) || 0;
-      const proporcion = totalPedidoLineas > 0
-        ? (item.base_reparto_linea || 0) / totalPedidoLineas
-        : (totalPedidoCantidad > 0 ? (item.cantidad || 0) / totalPedidoCantidad : 0);
-      const ingresoAsignado = (item.pedido_total || 0) * proporcion;
-      const descuentoAsignado = (item.pedido_descuento || 0) * proporcion;
+      const ingresoAsignado = item.ingresos_linea || 0;
+      const descuentoAsignado = 0;
 
       if (!rentabilidadMap.has(modeloId)) {
         rentabilidadMap.set(modeloId, {
@@ -846,7 +848,7 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
     const rentabilidad = Array.from(rentabilidadMap.values()).map((item: any) => {
       const gananciaBruta = item.ingresos_brutos - item.costo_total;
       const costosAdicionales = item.descuentos;
-      const gananciaNeta = gananciaBruta - costosAdicionales;
+      const gananciaNeta = gananciaBruta;
       const margenBrutoPct = item.ingresos_brutos > 0 ? (gananciaBruta / item.ingresos_brutos) * 100 : 0;
       const margenNetoPct = item.ingresos_brutos > 0 ? (gananciaNeta / item.ingresos_brutos) * 100 : 0;
 
@@ -886,7 +888,6 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
         total_ingresos: totalIngresos,
         total_costo: totalCosto,
         total_ganancia_bruta: totalGananciaBruta,
-        total_costos_adicionales: totalCostosAdicionales,
         total_ganancia_neta: totalGananciaNeta,
         margen_promedio: parseFloat(margenPromedio.toFixed(2)),
         modelo_mas_rentable: rentabilidad[0] || null,
@@ -1648,6 +1649,49 @@ export const getEstadoPedidos = async (req: AuthRequest, res: Response): Promise
           cliente_nombre: "$cliente.nombre",
           total: 1,
           estado_disponibilidad: 1,
+          productos: 1,
+          modelos_concatenados: {
+            $reduce: {
+              input: {
+                $map: {
+                  input: "$productos",
+                  as: "prod",
+                  in: {
+                    $let: {
+                      vars: {
+                        modelo_ref: {
+                          $arrayElemAt: [
+                            {
+                              $filter: {
+                                input: "$modelos_info",
+                                as: "m",
+                                cond: {
+                                  $eq: [
+                                    { $toString: "$$m._id" },
+                                    { $toString: "$$prod.idModelo" }
+                                  ]
+                                }
+                              }
+                            },
+                            0
+                          ]
+                        }
+                      },
+                      in: { $ifNull: ["$$modelo_ref.modelo", "Producto"] }
+                    }
+                  }
+                }
+              },
+              initialValue: "",
+              in: {
+                $cond: [
+                  { $eq: ["$$value", ""] },
+                  "$$this",
+                  { $concat: ["$$value", ", ", "$$this"] }
+                ]
+              }
+            }
+          },
           productos_concatenados: {
             $reduce: {
               input: {
@@ -1663,7 +1707,12 @@ export const getEstadoPedidos = async (req: AuthRequest, res: Response): Promise
                               $filter: {
                                 input: "$modelos_info",
                                 as: "m",
-                                cond: { $eq: ["$$m._id", "$$prod.idModelo"] }
+                                cond: {
+                                  $eq: [
+                                    { $toString: "$$m._id" },
+                                    { $toString: "$$prod.idModelo" }
+                                  ]
+                                }
                               }
                             },
                             0
