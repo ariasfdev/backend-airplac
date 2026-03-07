@@ -1479,7 +1479,7 @@ export const getEstadoPedidos = async (req: AuthRequest, res: Response): Promise
       };
     }
 
-    // Resumen por estado de disponibilidad del producto
+    // Resumen por estado de disponibilidad del producto (criterio por línea)
     let resumenEstadoBase: any = [
       { $match: matchStage },
       { $unwind: "$productos" }
@@ -1507,50 +1507,90 @@ export const getEstadoPedidos = async (req: AuthRequest, res: Response): Promise
       });
     }
 
-    resumenEstadoBase.push({
-      $group: {
-        _id: "$_id",
-        estados_stock: {
-          $addToSet: {
+    resumenEstadoBase.push(
+      {
+        $lookup: {
+          from: "Precios",
+          localField: "productos.id_precio",
+          foreignField: "_id",
+          as: "precio"
+        }
+      },
+      {
+        $addFields: {
+          estado_disponibilidad: {
             $toLower: {
               $ifNull: ["$productos.estado_stock", "sin_estado"]
             }
-          }
-        },
-        monto: { $first: "$total" },
-        monto_pendiente: { $first: "$total_pendiente" }
-      }
-    });
-
-    resumenEstadoBase.push({
-      $addFields: {
-        estado_disponibilidad: {
-          $switch: {
-            branches: [
-              { case: { $in: ["pendiente", "$estados_stock"] }, then: "pendiente" },
-              { case: { $in: ["disponible", "$estados_stock"] }, then: "disponible" },
-              { case: { $in: ["entregado", "$estados_stock"] }, then: "entregado" }
-            ],
-            default: { $ifNull: [{ $arrayElemAt: ["$estados_stock", 0] }, "sin_estado"] }
+          },
+          facturado_producto_linea: {
+            $multiply: [
+              { $ifNull: ["$productos.cantidad", 0] },
+              { $ifNull: [{ $arrayElemAt: ["$precio.precio", 0] }, 0] }
+            ]
           }
         }
+      },
+      {
+        $group: {
+          _id: {
+            estado_disponibilidad: "$estado_disponibilidad",
+            pedidoId: "$_id"
+          },
+          facturado_producto: { $sum: "$facturado_producto_linea" },
+          monto_pendiente: { $first: "$total_pendiente" }
+        }
+      },
+      {
+        $group: {
+          _id: "$_id.pedidoId",
+          total_pendiente_pedido: { $first: "$monto_pendiente" },
+          total_facturado_pedido: { $sum: "$facturado_producto" },
+          estados: {
+            $push: {
+              estado_disponibilidad: "$_id.estado_disponibilidad",
+              facturado_producto: "$facturado_producto"
+            }
+          }
+        }
+      },
+      { $unwind: "$estados" },
+      {
+        $addFields: {
+          monto_pendiente_prorrateado: {
+            $cond: [
+              { $gt: ["$total_facturado_pedido", 0] },
+              {
+                $multiply: [
+                  "$total_pendiente_pedido",
+                  {
+                    $divide: [
+                      "$estados.facturado_producto",
+                      "$total_facturado_pedido"
+                    ]
+                  }
+                ]
+              },
+              0
+            ]
+          }
+        }
+      },
+      {
+        $group: {
+          _id: "$estados.estado_disponibilidad",
+          cantidad: { $sum: 1 },
+          facturado_producto: { $sum: "$estados.facturado_producto" },
+          monto_pendiente: { $sum: "$monto_pendiente_prorrateado" }
+        }
       }
-    });
-
-    resumenEstadoBase.push({
-      $group: {
-        _id: "$estado_disponibilidad",
-        cantidad: { $sum: 1 },
-        monto: { $sum: "$monto" },
-        monto_pendiente: { $sum: "$monto_pendiente" }
-      }
-    });
+    );
 
     resumenEstadoBase.push({
       $project: {
         _id: 1,
         cantidad: 1,
-        monto: 1,
+        facturado_producto: 1,
         monto_pendiente: 1
       }
     });
@@ -1558,26 +1598,30 @@ export const getEstadoPedidos = async (req: AuthRequest, res: Response): Promise
 
     const resumenEstado = await Pedido.aggregate(resumenEstadoBase);
 
-    // Detalles de pedidos para expansión por fila de disponibilidad
+    // Detalles de pedidos para expansión por fila de disponibilidad (criterio por línea)
     const detalleBase: any[] = [
       { $match: matchStage },
-      {
-        $addFields: {
-          producto_principal: { $arrayElemAt: ["$productos", 0] }
-        }
-      },
+      { $unwind: "$productos" },
       {
         $lookup: {
           from: "Modelos",
-          localField: "producto_principal.idModelo",
+          localField: "productos.idModelo",
           foreignField: "_id",
-          as: "modelo_principal"
+          as: "modelo_linea"
         }
       },
       {
         $unwind: {
-          path: "$modelo_principal",
+          path: "$modelo_linea",
           preserveNullAndEmptyArrays: true
+        }
+      },
+      {
+        $lookup: {
+          from: "Precios",
+          localField: "productos.id_precio",
+          foreignField: "_id",
+          as: "precio_linea"
         }
       }
     ];
@@ -1585,163 +1629,50 @@ export const getEstadoPedidos = async (req: AuthRequest, res: Response): Promise
     if (tipo_producto) {
       detalleBase.push({
         $match: {
-          "modelo_principal.producto": tipo_producto
+          "modelo_linea.producto": tipo_producto
         }
       });
     }
 
     detalleBase.push(
       {
-        $lookup: {
-          from: "Modelos",
-          let: { idsModelos: "$productos.idModelo" },
-          pipeline: [
-            {
-              $match: {
-                $expr: {
-                  $in: ["$_id", "$$idsModelos"]
-                }
-              }
-            },
-            {
-              $project: {
-                _id: 1,
-                modelo: 1
-              }
-            }
-          ],
-          as: "modelos_info"
-        }
-      },
-      {
-        $addFields: {
-          estados_stock: {
-            $map: {
-              input: "$productos",
-              as: "prod",
-              in: {
-                $toLower: {
-                  $ifNull: ["$$prod.estado_stock", "sin_estado"]
-                }
-              }
-            }
-          }
-        }
-      },
-      {
         $addFields: {
           estado_disponibilidad: {
-            $switch: {
-              branches: [
-                { case: { $in: ["pendiente", "$estados_stock"] }, then: "pendiente" },
-                { case: { $in: ["disponible", "$estados_stock"] }, then: "disponible" },
-                { case: { $in: ["entregado", "$estados_stock"] }, then: "entregado" }
-              ],
-              default: "sin_estado"
+            $toLower: {
+              $ifNull: ["$productos.estado_stock", "sin_estado"]
             }
+          },
+          facturado_producto_linea: {
+            $multiply: [
+              { $ifNull: ["$productos.cantidad", 0] },
+              { $ifNull: [{ $arrayElemAt: ["$precio_linea.precio", 0] }, 0] }
+            ]
           }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            pedidoId: "$_id",
+            estado_disponibilidad: "$estado_disponibilidad"
+          },
+          remito: { $first: "$remito" },
+          fecha_pedido: { $first: "$fecha_pedido" },
+          cliente_nombre: { $first: "$cliente.nombre" },
+          facturado_producto: { $sum: "$facturado_producto_linea" },
+          modelos_set: { $addToSet: { $ifNull: ["$modelo_linea.modelo", "Producto"] } }
         }
       },
       {
         $project: {
           remito: 1,
           fecha_pedido: 1,
-          cliente_nombre: "$cliente.nombre",
-          total: 1,
-          estado_disponibilidad: 1,
-          productos: 1,
+          cliente_nombre: "$cliente_nombre",
+          facturado_producto: 1,
+          estado_disponibilidad: "$_id.estado_disponibilidad",
           modelos_concatenados: {
             $reduce: {
-              input: {
-                $map: {
-                  input: "$productos",
-                  as: "prod",
-                  in: {
-                    $let: {
-                      vars: {
-                        modelo_ref: {
-                          $arrayElemAt: [
-                            {
-                              $filter: {
-                                input: "$modelos_info",
-                                as: "m",
-                                cond: {
-                                  $eq: [
-                                    { $toString: "$$m._id" },
-                                    { $toString: "$$prod.idModelo" }
-                                  ]
-                                }
-                              }
-                            },
-                            0
-                          ]
-                        }
-                      },
-                      in: { $ifNull: ["$$modelo_ref.modelo", "Producto"] }
-                    }
-                  }
-                }
-              },
-              initialValue: "",
-              in: {
-                $cond: [
-                  { $eq: ["$$value", ""] },
-                  "$$this",
-                  { $concat: ["$$value", ", ", "$$this"] }
-                ]
-              }
-            }
-          },
-          productos_concatenados: {
-            $reduce: {
-              input: {
-                $map: {
-                  input: "$productos",
-                  as: "prod",
-                  in: {
-                    $let: {
-                      vars: {
-                        modelo_ref: {
-                          $arrayElemAt: [
-                            {
-                              $filter: {
-                                input: "$modelos_info",
-                                as: "m",
-                                cond: {
-                                  $eq: [
-                                    { $toString: "$$m._id" },
-                                    { $toString: "$$prod.idModelo" }
-                                  ]
-                                }
-                              }
-                            },
-                            0
-                          ]
-                        }
-                      },
-                      in: {
-                        $concat: [
-                          { $ifNull: ["$$modelo_ref.modelo", "Producto"] },
-                          " x ",
-                          { $toString: { $ifNull: ["$$prod.cantidad", 0] } },
-                          {
-                            $cond: [
-                              {
-                                $or: [
-                                  { $eq: ["$$prod.unidad", null] },
-                                  { $eq: ["$$prod.unidad", ""] }
-                                ]
-                              },
-                              "",
-                              { $concat: [" ", "$$prod.unidad"] }
-                            ]
-                          }
-                        ]
-                      }
-                    }
-                  }
-                }
-              },
+              input: "$modelos_set",
               initialValue: "",
               in: {
                 $cond: [
