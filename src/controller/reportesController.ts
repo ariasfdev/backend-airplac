@@ -227,16 +227,6 @@ export const getVentasPorModelo = async (req: AuthRequest, res: Response): Promi
       },
       { $unwind: "$productos" },
       {
-        $match: {
-          $expr: {
-            $eq: [
-              { $toString: "$productos.idModelo" },
-              { $toString: "$producto_principal.idModelo" }
-            ]
-          }
-        }
-      },
-      {
         $lookup: {
           from: "Modelos",
           localField: "productos.idModelo",
@@ -254,7 +244,7 @@ export const getVentasPorModelo = async (req: AuthRequest, res: Response): Promi
       },
       {
         $match: {
-          ...(idModelo && { "producto_principal.idModelo": new Types.ObjectId(idModelo as string) }),
+          ...(idModelo && { "productos.idModelo": new Types.ObjectId(idModelo as string) }),
           ...(tipo_producto && { "modelo.producto": tipo_producto })
         }
       },
@@ -733,15 +723,6 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
       tipo: "pedido"
     };
 
-    if (idModeloFiltro) {
-      matchStage.$expr = {
-        $eq: [
-          { $toString: { $arrayElemAt: ["$productos.idModelo", 0] } },
-          idModeloFiltro
-        ]
-      };
-    }
-
     const rentabilidadPorPedidoModelo = await Pedido.aggregate([
       { $match: matchStage },
       {
@@ -750,16 +731,6 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
         }
       },
       { $unwind: "$productos" },
-      {
-        $match: {
-          $expr: {
-            $eq: [
-              { $toString: "$productos.idModelo" },
-              { $toString: "$producto_principal.idModelo" }
-            ]
-          }
-        }
-      },
       {
         $lookup: {
           from: "Modelos",
