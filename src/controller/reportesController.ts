@@ -820,8 +820,8 @@ export const getRentabilidadPorModelo = async (req: AuthRequest, res: Response):
       const gananciaBruta = item.ingresos_brutos - item.costo_total;
       const costosAdicionales = item.descuentos;
       const gananciaNeta = gananciaBruta;
-      const margenBrutoPct = item.ingresos_brutos > 0 ? (gananciaBruta / item.ingresos_brutos) * 100 : 0;
-      const margenNetoPct = item.ingresos_brutos > 0 ? (gananciaNeta / item.ingresos_brutos) * 100 : 0;
+      const margenBrutoPct = item.costo_total > 0 ? (gananciaBruta / item.costo_total) * 100 : 0;
+      const margenNetoPct = item.costo_total > 0 ? (gananciaNeta / item.costo_total) * 100 : 0;
 
       return {
         _id: item._id,
@@ -1508,7 +1508,7 @@ export const getEstadoPedidos = async (req: AuthRequest, res: Response): Promise
             estado_disponibilidad: "$estado_disponibilidad",
             pedidoId: "$_id"
           },
-          facturado_producto: { $sum: "$facturado_producto_linea" },
+          facturado_producto: { $first: { $ifNull: ["$total", 0] } },
           monto_pendiente: { $first: "$total_pendiente" }
         }
       },
@@ -1630,7 +1630,7 @@ export const getEstadoPedidos = async (req: AuthRequest, res: Response): Promise
           remito: { $first: "$remito" },
           fecha_pedido: { $first: "$fecha_pedido" },
           cliente_nombre: { $first: "$cliente.nombre" },
-          facturado_producto: { $sum: "$facturado_producto_linea" },
+          facturado_producto: { $first: { $ifNull: ["$total", 0] } },
           modelos_set: { $addToSet: { $ifNull: ["$modelo_linea.modelo", "Producto"] } }
         }
       },
