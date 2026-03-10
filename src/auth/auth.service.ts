@@ -135,16 +135,15 @@ export class AuthService {
   }
 
   getCookieOptions(): CookieOptions {
-    // En producción, usar 'lax' en lugar de 'strict' para permitir cookies en redirecciones
-    // y verificar si estamos usando HTTPS para 'secure'
-    const isProduction = process.env.NODE_ENV === 'production';
-    const frontendOrigin = process.env.FRONTEND_ORIGIN || '';
-    const useSecure = isProduction && frontendOrigin.startsWith('https://');
+    // secure solo si FRONTEND_ORIGIN usa HTTPS
+    const isSecure = process.env.FRONTEND_ORIGIN?.startsWith('https://') || false;
+    // sameSite: 'lax' funciona mejor para HTTP, 'none' requiere secure: true (HTTPS)
+    const sameSiteValue = isSecure ? 'none' : 'lax';
     
     return {
       httpOnly: true,
-      secure: useSecure, // Solo true si es HTTPS
-      sameSite: isProduction ? 'lax' : 'strict', // 'lax' en producción para mejor compatibilidad
+      secure: isSecure,
+      sameSite: sameSiteValue as 'strict' | 'lax' | 'none',
       maxAge: Number(process.env.JWT_EXPIRATION_ACCESS || '3600') * 1000,
     };
   }
