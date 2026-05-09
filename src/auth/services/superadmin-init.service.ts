@@ -23,9 +23,11 @@ export class SuperadminInitService {
     }
 
     try {
-      // Verificar si ya existe un superadmin
-      const existingSuperadmin = await Usuario.findOne({ mail: superadminEmail });
-      if (existingSuperadmin) {
+      // Verificar si ya existe un superadmin por email o nombreUsuario
+      const existingSuperadminByEmail = await Usuario.findOne({ mail: superadminEmail });
+      const existingSuperadminByUsername = await Usuario.findOne({ nombreUsuario: superadminUsername });
+      
+      if (existingSuperadminByEmail || existingSuperadminByUsername) {
         console.log('✓ Superadmin already exists');
         return;
       }
@@ -57,6 +59,11 @@ export class SuperadminInitService {
 
       console.log(`✓ Superadmin initialized successfully: ${superadminEmail}`);
     } catch (error: any) {
+      // Si es un error de clave duplicada, simplemente ignorarlo (el usuario ya existe)
+      if (error.code === 11000) {
+        console.log('✓ Superadmin already exists (duplicate key detected)');
+        return;
+      }
       console.error(`✗ Error initializing superadmin: ${error.message}`);
       throw error;
     }
